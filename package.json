@@ -1,0 +1,119 @@
+{
+  "name": "nmbench",
+  "displayName": "nmbench",
+  "description": "An extension to view and manage .mod and .ctl files",
+  "version": "0.0.1",
+  "engines": {
+      "vscode": "^1.60.0"
+  },
+  "activationEvents": [
+    "onCommand:extension.manageRScriptCommand",
+    "onCommand:extension.openModFile",
+    "onCommand:extension.showModFileContextMenu",
+    "onCommand:extension.showSumoCommand",
+    "onCommand:extension.showRScriptCommand",
+    "onCommand:extension.showLinkedFiles",
+    "onCommand:extension.refreshModFileViewer",
+    "onView:modFileViewer"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+      "commands": [
+          {
+              "command": "extension.manageRScriptCommand",
+              "title": "Manage R Script Command"
+          },
+          {
+              "command": "extension.openModFile",
+              "title": "Open Mod File"
+          },
+          {
+              "command": "extension.showModFileContextMenu",
+              "title": "Show Mod File Context Menu"
+          },
+          {
+              "command": "extension.showSumoCommand",
+              "title": "Show Sumo Command"
+          },
+          {
+              "command": "extension.showRScriptCommand",
+              "title": "Show R Script Command"
+          },
+          {
+              "command": "extension.showLinkedFiles",
+              "title": "Show Linked Files"
+          },
+          {
+              "command": "extension.refreshModFileViewer",
+              "title": "Refresh Mod File Viewer"
+          }
+      ],
+      "views": {
+          "explorer": [
+              {
+                  "id": "modFileViewer",
+                  "name": "Mod File Viewer"
+              }
+          ]
+      },
+      "menus": {
+          "view/item/context": [
+              {
+                  "command": "extension.showModFileContextMenu",
+                  "when": "viewItem == modFile",
+                  "group": "PsN operations",
+                  "icon": {
+                    "dark": "resources/dark/psn.svg",
+                    "light": "resources/light/psn.svg"
+                  }
+              },
+              {
+                  "command": "extension.showSumoCommand",
+                  "when": "viewItem == modFile",
+                  "group": "PsN operations"
+              },
+              {
+                  "command": "extension.showLinkedFiles",
+                  "when": "viewItem == modFile",
+                  "group": "navigation"
+              },
+              {
+                  "command": "extension.showRScriptCommand",
+                  "when": "viewItem == modFile || viewItem == modFolder",
+                  "group": "Rscript operations",
+                  "icon": {
+                    "dark": "resources/dark/r.svg",
+                    "light": "resources/light/r.svg"
+                  }
+              },
+              {
+                  "command": "extension.manageRScriptCommand",
+                  "when": "viewItem == modFile",
+                  "group": "Rscript operations"
+              }
+          ],
+          "view/title": [
+              {
+                  "command": "extension.refreshModFileViewer",
+                  "when": "view == modFileViewer",
+                  "group": "navigation"
+              }
+          ]
+      }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "postinstall": "node ./node_modules/vscode/bin/install"
+}, 
+  "devDependencies": {
+      "@types/node": "^14.14.37",
+      "@types/vscode": "^1.60.0",
+      "typescript": "^4.4.3",
+      "vscode": "^1.1.37"
+  },
+  "dependencies": {
+      "node-fetch": "^3.3.2"
+  }
+}
