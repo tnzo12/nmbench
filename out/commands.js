@@ -26,9 +26,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.showModFileContextMenu = void 0;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
-function showModFileContextMenu(treeView) {
-    const selectedNodes = treeView.selection;
-    if (selectedNodes.length === 0) {
+function showModFileContextMenu(uri) {
+    if (!uri) {
         vscode.window.showInformationMessage('No items selected.');
         return;
     }
@@ -66,13 +65,13 @@ function showModFileContextMenu(treeView) {
                     placeHolder: 'Select optional commands to add'
                 }).then(selectedOptions => {
                     const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-                    let defaultCommandSyntax = `execute ${optionsString} ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                    let defaultCommandSyntax = `execute ${optionsString} ${path.basename(uri.fsPath)}`;
                     vscode.window.showInputBox({
                         prompt: `Enter parameters for ${selectedCommand}:`,
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(selectedNodes[0].uri.fsPath) });
+                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -91,13 +90,13 @@ function showModFileContextMenu(treeView) {
                     placeHolder: 'Select optional commands to add'
                 }).then(selectedOptions => {
                     const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-                    let defaultCommandSyntax = `vpc -samples=200 -auto_bin=auto ${optionsString} ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                    let defaultCommandSyntax = `vpc -samples=200 -auto_bin=auto ${optionsString} ${path.basename(uri.fsPath)}`;
                     vscode.window.showInputBox({
                         prompt: `Enter parameters for ${selectedCommand}:`,
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(selectedNodes[0].uri.fsPath) });
+                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -116,13 +115,13 @@ function showModFileContextMenu(treeView) {
                     placeHolder: 'Select optional commands to add'
                 }).then(selectedOptions => {
                     const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-                    let defaultCommandSyntax = `bootstrap -samples=100 -threads=4 ${optionsString} ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                    let defaultCommandSyntax = `bootstrap -samples=100 -threads=4 ${optionsString} ${path.basename(uri.fsPath)}`;
                     vscode.window.showInputBox({
                         prompt: `Enter parameters for ${selectedCommand}:`,
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(selectedNodes[0].uri.fsPath) });
+                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -132,62 +131,56 @@ function showModFileContextMenu(treeView) {
             else {
                 let defaultCommandSyntax = '';
                 switch (selectedCommand) {
-                    // case 'vpc':
-                    //     defaultCommandSyntax = `vpc -samples=200 -auto_bin=auto ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
-                    //     break;
                     case 'npc':
-                        defaultCommandSyntax = `npc -samples=200 ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `npc -samples=200 ${path.basename(uri.fsPath)}`;
                         break;
-                    // case 'bootstrap':
-                    //     defaultCommandSyntax = `bootstrap -samples=50 -threads=4 ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
-                    //     break;
                     case 'cdd':
-                        defaultCommandSyntax = `cdd -case_column=ID -bins=100 ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `cdd -case_column=ID -bins=100 ${path.basename(uri.fsPath)}`;
                         break;
                     case 'llp':
-                        defaultCommandSyntax = `llp -omegas='' --sigmas='' --thetas='' ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `llp -omegas='' --sigmas='' --thetas='' ${path.basename(uri.fsPath)}`;
                         break;
                     case 'sir':
-                        defaultCommandSyntax = `sir -samples=500 -resample ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `sir -samples=500 -resample ${path.basename(uri.fsPath)}`;
                         break;
                     case 'ebe_npde':
-                        defaultCommandSyntax = `ebe_npde ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `ebe_npde ${path.basename(uri.fsPath)}`;
                         break;
                     case 'sse':
-                        defaultCommandSyntax = `sse -samples=500 -no_estimate_simulation - alt=run1.mod ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `sse -samples=500 -no_estimate_simulation -alt=run1.mod ${path.basename(uri.fsPath)}`;
                         break;
                     case 'scm':
-                        defaultCommandSyntax = `scm -config_file ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `scm -config_file ${path.basename(uri.fsPath)}`;
                         break;
                     case 'xv_scm':
-                        defaultCommandSyntax = `xv_scm -config_file= ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `xv_scm -config_file= ${path.basename(uri.fsPath)}`;
                         break;
                     case 'boot_scm':
-                        defaultCommandSyntax = `boot_scm -samples=100 -threads=4 -config_file= ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `boot_scm -samples=100 -threads=4 -config_file= ${path.basename(uri.fsPath)}`;
                         break;
                     case 'lasso':
-                        defaultCommandSyntax = `lasso ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `lasso ${path.basename(uri.fsPath)}`;
                         break;
                     case 'nca':
-                        defaultCommandSyntax = `nca -samples=500 -columns=CL,V ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `nca -samples=500 -columns=CL,V ${path.basename(uri.fsPath)}`;
                         break;
                     case 'nonpb':
-                        defaultCommandSyntax = `nonpb ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `nonpb ${path.basename(uri.fsPath)}`;
                         break;
                     case 'mimp':
-                        defaultCommandSyntax = `mimp ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `mimp ${path.basename(uri.fsPath)}`;
                         break;
                     case 'gls':
-                        defaultCommandSyntax = `gls ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `gls ${path.basename(uri.fsPath)}`;
                         break;
                     case 'parallel_retries':
-                        defaultCommandSyntax = `parallel_retries -min_retries=10 -thread=5 -seed=12345 -degree=0.9 ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `parallel_retries -min_retries=10 -thread=5 -seed=12345 -degree=0.9 ${path.basename(uri.fsPath)}`;
                         break;
                     case 'precond':
-                        defaultCommandSyntax = `precond ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `precond ${path.basename(uri.fsPath)}`;
                         break;
                     case 'update_inits':
-                        defaultCommandSyntax = `update_inits ${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')} -out=${selectedNodes.map(node => path.basename(node.uri.fsPath)).join(' ')}`;
+                        defaultCommandSyntax = `update_inits ${path.basename(uri.fsPath)} -out=${path.basename(uri.fsPath)}`;
                         break;
                 }
                 vscode.window.showInputBox({
@@ -195,7 +188,7 @@ function showModFileContextMenu(treeView) {
                     value: defaultCommandSyntax
                 }).then(input => {
                     if (input) {
-                        const terminal = vscode.window.createTerminal({ cwd: path.dirname(selectedNodes[0].uri.fsPath) });
+                        const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
                         terminal.sendText(`${input}`);
                         terminal.show();
                     }

@@ -85,22 +85,22 @@ class ModFileViewerProvider {
         await addChildrenToStack();
         while (stack.length) {
             const current = stack.pop();
-            if (!current)
+            if (!current) {
                 continue;
-            if (current.uri.fsPath === uri.fsPath)
+            }
+            if (current.uri.fsPath === uri.fsPath) {
                 return current;
-            if (current instanceof ModFolder)
+            }
+            if (current instanceof ModFolder) {
                 await addChildrenToStack(current);
+            }
         }
         return undefined;
     }
     getParent(element) {
-        // 이 메서드는 주어진 요소의 부모를 반환해야 합니다.
-        // 트리 구조에서 부모-자식 관계를 구성하는 방법에 따라 구현해야 합니다.
-        // 여기에서는 간단한 예로 구현했습니다.
         const parentUri = path.dirname(element.uri.fsPath);
         if (parentUri === element.uri.fsPath) {
-            return null; // 더 이상의 부모가 없음
+            return null;
         }
         const parentElement = new ModFolder(vscode.Uri.file(parentUri));
         return parentElement;
@@ -165,8 +165,8 @@ function activate(context) {
         modFileViewerProvider.refresh();
     });
     context.subscriptions.push(refreshCommandDisposable);
-    let showModFileContextMenuDisposable = vscode.commands.registerCommand('extension.showModFileContextMenu', () => {
-        (0, commands_1.showModFileContextMenu)(treeView);
+    let showModFileContextMenuDisposable = vscode.commands.registerCommand('extension.showModFileContextMenu', (uri) => {
+        (0, commands_1.showModFileContextMenu)(uri);
     });
     context.subscriptions.push(showModFileContextMenuDisposable);
     let showSumoCommandDisposable = vscode.commands.registerCommand('extension.showSumoCommand', () => {
