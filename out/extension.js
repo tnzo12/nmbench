@@ -76,6 +76,35 @@ class ModFileViewerProvider {
             return Promise.resolve([]);
         }
     }
+    async getModFileOrFolder(uri) {
+        const stack = [];
+        const addChildrenToStack = async (element) => {
+            const children = await this.getChildren(element);
+            stack.push(...children);
+        };
+        await addChildrenToStack();
+        while (stack.length) {
+            const current = stack.pop();
+            if (!current)
+                continue;
+            if (current.uri.fsPath === uri.fsPath)
+                return current;
+            if (current instanceof ModFolder)
+                await addChildrenToStack(current);
+        }
+        return undefined;
+    }
+    getParent(element) {
+        // 이 메서드는 주어진 요소의 부모를 반환해야 합니다.
+        // 트리 구조에서 부모-자식 관계를 구성하는 방법에 따라 구현해야 합니다.
+        // 여기에서는 간단한 예로 구현했습니다.
+        const parentUri = path.dirname(element.uri.fsPath);
+        if (parentUri === element.uri.fsPath) {
+            return null; // 더 이상의 부모가 없음
+        }
+        const parentElement = new ModFolder(vscode.Uri.file(parentUri));
+        return parentElement;
+    }
 }
 class ModFile extends vscode.TreeItem {
     uri;
@@ -87,7 +116,7 @@ class ModFile extends vscode.TreeItem {
         this.contextValue = 'modFile';
     }
     extractDescription(content) {
-        const descriptionRegex = /.*Description:\s*(.*)/i; // 'i' flag for case-insensitive match
+        const descriptionRegex = /.*Description:\s*(.*)/i;
         const match = content.match(descriptionRegex);
         return match ? match[1] : null;
     }
@@ -123,6 +152,19 @@ function activate(context) {
             vscode.commands.executeCommand('extension.openModFile', selected.uri);
         }
     });
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+        if (editor && editor.document.uri.scheme === 'file' && editor.document.uri.fsPath.match(/\.(mod|ctl)$/)) {
+            modFileViewerProvider.getModFileOrFolder(editor.document.uri).then(item => {
+                if (item) {
+                    treeView.reveal(item, { select: true, focus: true });
+                }
+            });
+        }
+    });
+    let refreshCommandDisposable = vscode.commands.registerCommand('extension.refreshModFileViewer', () => {
+        modFileViewerProvider.refresh();
+    });
+    context.subscriptions.push(refreshCommandDisposable);
     let showModFileContextMenuDisposable = vscode.commands.registerCommand('extension.showModFileContextMenu', () => {
         (0, commands_1.showModFileContextMenu)(treeView);
     });
@@ -254,10 +296,6 @@ function activate(context) {
         });
     });
     context.subscriptions.push(showLinkedFilesDisposable);
-    let refreshCommandDisposable = vscode.commands.registerCommand('extension.refreshModFileViewer', () => {
-        modFileViewerProvider.refresh();
-    });
-    context.subscriptions.push(refreshCommandDisposable);
 }
 exports.activate = activate;
 function getWebviewContent(output) {
