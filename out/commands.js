@@ -23,9 +23,10 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.showModFileContextMenuNONMEM = exports.showModFileContextMenu = void 0;
+exports.showRScriptCommand = exports.showModFileContextMenuNONMEM = exports.showModFileContextMenu = void 0;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
 function isUriArray(nodes) {
     return nodes.every(node => node instanceof vscode.Uri);
 }
@@ -251,4 +252,58 @@ function showModFileContextMenuNONMEM(nodes, context) {
     });
 }
 exports.showModFileContextMenuNONMEM = showModFileContextMenuNONMEM;
+// Running Rscript
+function showRScriptCommand(context, nodes) {
+    let uris;
+    if (isUriArray(nodes)) {
+        uris = nodes;
+    }
+    else if (isTreeItemArray(nodes)) {
+        uris = nodes.map(node => node.uri);
+    }
+    else {
+        vscode.window.showErrorMessage('Invalid selection');
+        return;
+    }
+    if (uris.length === 0) {
+        vscode.window.showInformationMessage('No items selected.');
+        return;
+    }
+    const scriptsFolder = path.join(context.extensionPath, 'Rscripts');
+    if (!fs.existsSync(scriptsFolder)) {
+        fs.mkdirSync(scriptsFolder);
+    }
+    fs.readdir(scriptsFolder, (err, files) => {
+        if (err) {
+            vscode.window.showErrorMessage(`Error reading scripts folder: ${err.message}`);
+            return;
+        }
+        const scriptFiles = files.map(file => ({
+            label: path.basename(file),
+            description: path.join(scriptsFolder, file)
+        }));
+        vscode.window.showQuickPick(scriptFiles, { placeHolder: 'Select an R script to execute' }).then(selected => {
+            if (selected) {
+                const firstUri = uris[0];
+                const workingDir = path.dirname(firstUri.fsPath);
+                const baseFileName = path.basename(firstUri.fsPath);
+                const scriptPath = selected.description;
+                let scriptContent = fs.readFileSync(scriptPath, 'utf-8');
+                scriptContent = scriptContent.replace(/nmbench_selec <- # MODEL_FILE_IN/g, `nmbench_selec <- "${baseFileName}"`);
+                scriptContent = scriptContent.replace(/nmbench_wkdir <- # MODEL_FOLDER_IN/g, `nmbench_wkdir <- "${workingDir}"`);
+                const tempScriptPath = path.join(workingDir, `temp_${path.basename(scriptPath)}`);
+                fs.writeFileSync(tempScriptPath, scriptContent);
+                const terminal = vscode.window.createTerminal({ cwd: workingDir });
+                terminal.sendText(`Rscript "${tempScriptPath}"`);
+                terminal.show();
+                setTimeout(() => {
+                    if (fs.existsSync(tempScriptPath)) {
+                        fs.unlinkSync(tempScriptPath);
+                    }
+                }, 20000); // 20 seconds delay before deleting the temporary script
+            }
+        });
+    });
+}
+exports.showRScriptCommand = showRScriptCommand;
 //# sourceMappingURL=commands.js.map

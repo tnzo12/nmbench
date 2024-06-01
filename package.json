@@ -56,12 +56,16 @@
                 "title": "Show Sumo Command"
             },
             {
-                "command": "extension.showRScriptCommand",
+                "command": "extension.showRScriptCommandFromEditor",
                 "title": "Show R Script Command",
                 "icon": {
                     "dark": "./resources/dark/r.svg",
                     "light": "./resources/light/r.svg"
                 }
+            },
+            {
+                "command": "extension.showRScriptCommandFromTreeView",
+                "title": "Show R Script Command"
             },
             {
                 "command": "extension.showLinkedFiles",
@@ -102,7 +106,7 @@
                     "group": "navigation"
                 },
                 {
-                    "command": "extension.showRScriptCommand",
+                    "command": "extension.showRScriptCommandFromTreeView",
                     "when": "viewItem == modFile || viewItem == modFolder",
                     "group": "Rscript operations"
                 },
@@ -131,7 +135,7 @@
                     "group": "navigation"
                 },
                 {
-                    "command": "extension.showRScriptCommand",
+                    "command": "extension.showRScriptCommandFromEditor",
                     "when": "resourceExtname == .mod || resourceExtname == .ctl",
                     "group": "navigation"
                 }
