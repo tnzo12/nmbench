@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as util from 'util';
 import * as childProcess from 'child_process';
 import { showModFileContextMenu } from './commands';
+import { showModFileContextMenuNONMEM } from './commands';
 
 const readFile = util.promisify(fs.readFile);
 
@@ -147,9 +148,30 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(refreshCommandDisposable);
 
     let showModFileContextMenuDisposable = vscode.commands.registerCommand('extension.showModFileContextMenu', (uri: vscode.Uri) => {
-        showModFileContextMenu(uri);
+        showModFileContextMenu([uri]);
     });
     context.subscriptions.push(showModFileContextMenuDisposable);
+
+    let showModFileContextMenuFromTreeViewDisposable = vscode.commands.registerCommand('extension.showModFileContextMenuFromTreeView', () => {
+        const selectedNodes = treeView.selection as (ModFile | ModFolder)[];
+
+        if (!selectedNodes || selectedNodes.length === 0) {
+            vscode.window.showInformationMessage('No items selected.');
+            return;
+        }
+
+        selectedNodes.forEach(node => {
+            console.log(`Selected node URI: ${node.uri.fsPath}`);
+        });
+
+        showModFileContextMenu(selectedNodes);
+    });
+    context.subscriptions.push(showModFileContextMenuFromTreeViewDisposable);
+
+    let showModFileContextMenuNONMEMDisposable = vscode.commands.registerCommand('extension.showModFileContextMenuNONMEM', (uri: vscode.Uri) => {
+        showModFileContextMenuNONMEM([uri], context);
+    });
+    context.subscriptions.push(showModFileContextMenuNONMEMDisposable);
 
     let showSumoCommandDisposable = vscode.commands.registerCommand('extension.showSumoCommand', () => {
         const selectedNodes = treeView.selection;
@@ -210,6 +232,7 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
     context.subscriptions.push(showSumoCommandDisposable);
+
 
     let manageRScriptCommandDisposable = vscode.commands.registerCommand('extension.manageRScriptCommand', (node: ModFile | ModFolder) => {
         const scriptsFolder = path.join(context.extensionPath, 'Rscripts');

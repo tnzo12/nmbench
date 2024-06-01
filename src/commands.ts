@@ -1,8 +1,28 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-export function showModFileContextMenu(uri: vscode.Uri) {
-    if (!uri) {
+function isUriArray(nodes: any[]): nodes is vscode.Uri[] {
+    return nodes.every(node => node instanceof vscode.Uri);
+}
+
+function isTreeItemArray(nodes: any[]): nodes is (vscode.TreeItem & { uri: vscode.Uri })[] {
+    return nodes.every(node => node instanceof vscode.TreeItem && 'uri' in node);
+}
+
+// Function for PsN(Perl-speaks-NONMEM) run
+export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[]) {
+    let uris: vscode.Uri[];
+
+    if (isUriArray(nodes)) {
+        uris = nodes;
+    } else if (isTreeItemArray(nodes)) {
+        uris = nodes.map(node => node.uri);
+    } else {
+        vscode.window.showErrorMessage('Invalid selection');
+        return;
+    }
+
+    if (uris.length === 0) {
         vscode.window.showInformationMessage('No items selected.');
         return;
     }
@@ -27,153 +47,192 @@ export function showModFileContextMenu(uri: vscode.Uri) {
         'gls',
         'parallel_retries',
         'precond',
-        'update_inits'])
-        .then(selectedCommand => {
-            if (selectedCommand) {
-                if (selectedCommand === 'execute') {
-                    vscode.window.showQuickPick([
-                        { label: '-rplots=1', description: 'generate basic rplots after model run' },
-                        { label: '-zip', description: 'compressed results in .zip file' },
-                        { label: '-display_iterations', description: 'display iterations' }
-                    ], {
-                        canPickMany: true,
-                        placeHolder: 'Select optional commands to add'
-                    }).then(selectedOptions => {
-                        const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
+        'update_inits'
+    ]).then(selectedCommand => {
+        if (selectedCommand) {
+            const fileNames = uris.map(uri => path.basename(uri.fsPath)).join(' ');
 
-                        let defaultCommandSyntax = `execute ${optionsString} ${path.basename(uri.fsPath)}`;
+            if (selectedCommand === 'execute') {
+                vscode.window.showQuickPick([
+                    { label: '-rplots=1', description: 'generate basic rplots after model run' },
+                    { label: '-zip', description: 'compressed results in .zip file' },
+                    { label: '-display_iterations', description: 'display iterations' }
+                ], {
+                    canPickMany: true,
+                    placeHolder: 'Select optional commands to add'
+                }).then(selectedOptions => {
+                    const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
 
-                        vscode.window.showInputBox({
-                            prompt: `Enter parameters for ${selectedCommand}:`,
-                            value: defaultCommandSyntax
-                        }).then(input => {
-                            if (input) {
-                                const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
-                                terminal.sendText(`${input}`);
-                                terminal.show();
-                            }
-                        });
-                    });
-                } else if (selectedCommand === 'vpc') {
-                    vscode.window.showQuickPick([
-                        { label: '-rplots=1', description: 'generate basic rplots after model run' },
-                        { label: '-predcorr', description: 'perform prediction corrected VPC' },
-                        { label: '-stratify_on=', description: 'stratification' },
-                        { label: '-varcorr', description: 'variability correction on DVs before computing' },
-                        { label: '-dir=', description: 'name direction for output' }
-                    ], {
-                        canPickMany: true,
-                        placeHolder: 'Select optional commands to add'
-                    }).then(selectedOptions => {
-                        const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-
-                        let defaultCommandSyntax = `vpc -samples=200 -auto_bin=auto ${optionsString} ${path.basename(uri.fsPath)}`;
-
-                        vscode.window.showInputBox({
-                            prompt: `Enter parameters for ${selectedCommand}:`,
-                            value: defaultCommandSyntax
-                        }).then(input => {
-                            if (input) {
-                                const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
-                                terminal.sendText(`${input}`);
-                                terminal.show();
-                            }
-                        });
-                    });
-                } else if (selectedCommand === 'bootstrap') {
-                    vscode.window.showQuickPick([
-                        { label: '-rplots=1', description: 'generate basic rplots after model run' },
-                        { label: '-stratify_on=', description: 'stratification' },
-                        { label: '-dir=', description: 'name direction for output' },
-                        { label: '-keep covariance=', description: 'Keep $COV, can affect run time significantly' },
-                        { label: '-allow_ignore_id', description: 'Program continues execution with IGNORE/ACCEPT statement' }
-                    ], {
-                        canPickMany: true,
-                        placeHolder: 'Select optional commands to add'
-                    }).then(selectedOptions => {
-                        const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-
-                        let defaultCommandSyntax = `bootstrap -samples=100 -threads=4 ${optionsString} ${path.basename(uri.fsPath)}`;
-
-                        vscode.window.showInputBox({
-                            prompt: `Enter parameters for ${selectedCommand}:`,
-                            value: defaultCommandSyntax
-                        }).then(input => {
-                            if (input) {
-                                const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
-                                terminal.sendText(`${input}`);
-                                terminal.show();
-                            }
-                        });
-                    });
-                } else {
-                    let defaultCommandSyntax = '';
-
-                    switch (selectedCommand) {
-                        case 'npc':
-                            defaultCommandSyntax = `npc -samples=200 ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'cdd':
-                            defaultCommandSyntax = `cdd -case_column=ID -bins=100 ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'llp':
-                            defaultCommandSyntax = `llp -omegas='' --sigmas='' --thetas='' ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'sir':
-                            defaultCommandSyntax = `sir -samples=500 -resample ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'ebe_npde':
-                            defaultCommandSyntax = `ebe_npde ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'sse':
-                            defaultCommandSyntax = `sse -samples=500 -no_estimate_simulation -alt=run1.mod ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'scm':
-                            defaultCommandSyntax = `scm -config_file ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'xv_scm':
-                            defaultCommandSyntax = `xv_scm -config_file= ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'boot_scm':
-                            defaultCommandSyntax = `boot_scm -samples=100 -threads=4 -config_file= ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'lasso':
-                            defaultCommandSyntax = `lasso ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'nca':
-                            defaultCommandSyntax = `nca -samples=500 -columns=CL,V ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'nonpb':
-                            defaultCommandSyntax = `nonpb ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'mimp':
-                            defaultCommandSyntax = `mimp ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'gls':
-                            defaultCommandSyntax = `gls ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'parallel_retries':
-                            defaultCommandSyntax = `parallel_retries -min_retries=10 -thread=5 -seed=12345 -degree=0.9 ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'precond':
-                            defaultCommandSyntax = `precond ${path.basename(uri.fsPath)}`;
-                            break;
-                        case 'update_inits':
-                            defaultCommandSyntax = `update_inits ${path.basename(uri.fsPath)} -out=${path.basename(uri.fsPath)}`;
-                            break;
-                    }
+                    let defaultCommandSyntax = `execute ${optionsString} ${fileNames}`;
 
                     vscode.window.showInputBox({
                         prompt: `Enter parameters for ${selectedCommand}:`,
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uri.fsPath) });
+                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
                     });
+                });
+            } else if (selectedCommand === 'vpc') {
+                vscode.window.showQuickPick([
+                    { label: '-rplots=1', description: 'generate basic rplots after model run' },
+                    { label: '-predcorr', description: 'perform prediction corrected VPC' },
+                    { label: '-stratify_on=', description: 'stratification' },
+                    { label: '-varcorr', description: 'variability correction on DVs before computing' },
+                    { label: '-dir=', description: 'name direction for output' }
+                ], {
+                    canPickMany: true,
+                    placeHolder: 'Select optional commands to add'
+                }).then(selectedOptions => {
+                    const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
+
+                    let defaultCommandSyntax = `vpc -samples=200 -auto_bin=auto ${optionsString} ${fileNames}`;
+
+                    vscode.window.showInputBox({
+                        prompt: `Enter parameters for ${selectedCommand}:`,
+                        value: defaultCommandSyntax
+                    }).then(input => {
+                        if (input) {
+                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            terminal.sendText(`${input}`);
+                            terminal.show();
+                        }
+                    });
+                });
+            } else if (selectedCommand === 'bootstrap') {
+                vscode.window.showQuickPick([
+                    { label: '-rplots=1', description: 'generate basic rplots after model run' },
+                    { label: '-stratify_on=', description: 'stratification' },
+                    { label: '-dir=', description: 'name direction for output' },
+                    { label: '-keep covariance=', description: 'Keep $COV, can affect run time significantly' },
+                    { label: '-allow_ignore_id', description: 'Program continues execution with IGNORE/ACCEPT statement' }
+                ], {
+                    canPickMany: true,
+                    placeHolder: 'Select optional commands to add'
+                }).then(selectedOptions => {
+                    const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
+
+                    let defaultCommandSyntax = `bootstrap -samples=100 -threads=4 ${optionsString} ${fileNames}`;
+
+                    vscode.window.showInputBox({
+                        prompt: `Enter parameters for ${selectedCommand}:`,
+                        value: defaultCommandSyntax
+                    }).then(input => {
+                        if (input) {
+                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            terminal.sendText(`${input}`);
+                            terminal.show();
+                        }
+                    });
+                });
+            } else {
+                let defaultCommandSyntax = '';
+
+                switch (selectedCommand) {
+                    case 'npc':
+                        defaultCommandSyntax = `npc -samples=200 ${fileNames}`;
+                        break;
+                    case 'cdd':
+                        defaultCommandSyntax = `cdd -case_column=ID -bins=100 ${fileNames}`;
+                        break;
+                    case 'llp':
+                        defaultCommandSyntax = `llp -omegas='' --sigmas='' --thetas='' ${fileNames}`;
+                        break;
+                    case 'sir':
+                        defaultCommandSyntax = `sir -samples=500 -resample ${fileNames}`;
+                        break;
+                    case 'ebe_npde':
+                        defaultCommandSyntax = `ebe_npde ${fileNames}`;
+                        break;
+                    case 'sse':
+                        defaultCommandSyntax = `sse -samples=500 -no_estimate_simulation - alt=run1.mod ${fileNames}`;
+                        break;
+                    case 'scm':
+                        defaultCommandSyntax = `scm -config_file ${fileNames}`;
+                        break;
+                    case 'xv_scm':
+                        defaultCommandSyntax = `xv_scm -config_file= ${fileNames}`;
+                        break;
+                    case 'boot_scm':
+                        defaultCommandSyntax = `boot_scm -samples=100 -threads=4 -config_file= ${fileNames}`;
+                        break;
+                    case 'lasso':
+                        defaultCommandSyntax = `lasso ${fileNames}`;
+                        break;
+                    case 'nca':
+                        defaultCommandSyntax = `nca -samples=500 -columns=CL,V ${fileNames}`;
+                        break;
+                    case 'nonpb':
+                        defaultCommandSyntax = `nonpb ${fileNames}`;
+                        break;
+                    case 'mimp':
+                        defaultCommandSyntax = `mimp ${fileNames}`;
+                        break;
+                    case 'gls':
+                        defaultCommandSyntax = `gls ${fileNames}`;
+                        break;
+                    case 'parallel_retries':
+                        defaultCommandSyntax = `parallel_retries -min_retries=10 -thread=5 -seed=12345 -degree=0.9 ${fileNames}`;
+                        break;
+                    case 'precond':
+                        defaultCommandSyntax = `precond ${fileNames}`;
+                        break;
+                    case 'update_inits':
+                        defaultCommandSyntax = `update_inits ${fileNames} -out=${fileNames}`;
+                        break;
                 }
+
+                vscode.window.showInputBox({
+                    prompt: `Enter parameters for ${selectedCommand}:`,
+                    value: defaultCommandSyntax
+                }).then(input => {
+                    if (input) {
+                        const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                        terminal.sendText(`${input}`);
+                        terminal.show();
+                    }
+                });
             }
-        });
+        }
+    });
+}
+
+// Function For NONMEM run
+export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[], context: vscode.ExtensionContext) {
+    let uris: vscode.Uri[];
+
+    if (isUriArray(nodes)) {
+        uris = nodes;
+    } else if (isTreeItemArray(nodes)) {
+        uris = nodes.map(node => node.uri);
+    } else {
+        vscode.window.showErrorMessage('Invalid selection');
+        return;
+    }
+
+    if (uris.length === 0) {
+        vscode.window.showInformationMessage('No items selected.');
+        return;
+    }
+
+    const fileNames = uris.map(uri => path.basename(uri.fsPath)).join(' ');
+    const fileNamesLst = uris.map(uri => path.basename(uri.fsPath).replace(/\.(mod|ctl)$/i, '.lst')).join(' ');
+    const previousInput = context.globalState.get<string>('nonmemPath', '/opt/nm75/util/nmfe75');
+    let defaultCommandSyntax = `${previousInput} ${fileNames} ${fileNamesLst}`;
+
+    vscode.window.showInputBox({
+        prompt: `Correct NONMEM path accordingly. ex) /opt/nm75/util/nmfe75 for v7.5.x:`,
+        value: defaultCommandSyntax
+    }).then(input => {
+        if (input) {
+            const [nonmemPath] = input.split(' ', 1);
+            context.globalState.update('nonmemPath', nonmemPath);
+            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+            terminal.sendText(input);
+            terminal.show();
+        }
+    });
 }

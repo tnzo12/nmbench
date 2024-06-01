@@ -30,6 +30,7 @@ const fs = __importStar(require("fs"));
 const util = __importStar(require("util"));
 const childProcess = __importStar(require("child_process"));
 const commands_1 = require("./commands");
+const commands_2 = require("./commands");
 const readFile = util.promisify(fs.readFile);
 class ModFileViewerProvider {
     _onDidChangeTreeData = new vscode.EventEmitter();
@@ -166,9 +167,25 @@ function activate(context) {
     });
     context.subscriptions.push(refreshCommandDisposable);
     let showModFileContextMenuDisposable = vscode.commands.registerCommand('extension.showModFileContextMenu', (uri) => {
-        (0, commands_1.showModFileContextMenu)(uri);
+        (0, commands_1.showModFileContextMenu)([uri]);
     });
     context.subscriptions.push(showModFileContextMenuDisposable);
+    let showModFileContextMenuFromTreeViewDisposable = vscode.commands.registerCommand('extension.showModFileContextMenuFromTreeView', () => {
+        const selectedNodes = treeView.selection;
+        if (!selectedNodes || selectedNodes.length === 0) {
+            vscode.window.showInformationMessage('No items selected.');
+            return;
+        }
+        selectedNodes.forEach(node => {
+            console.log(`Selected node URI: ${node.uri.fsPath}`);
+        });
+        (0, commands_1.showModFileContextMenu)(selectedNodes);
+    });
+    context.subscriptions.push(showModFileContextMenuFromTreeViewDisposable);
+    let showModFileContextMenuNONMEMDisposable = vscode.commands.registerCommand('extension.showModFileContextMenuNONMEM', (uri) => {
+        (0, commands_2.showModFileContextMenuNONMEM)([uri], context);
+    });
+    context.subscriptions.push(showModFileContextMenuNONMEMDisposable);
     let showSumoCommandDisposable = vscode.commands.registerCommand('extension.showSumoCommand', () => {
         const selectedNodes = treeView.selection;
         if (selectedNodes.length === 0) {

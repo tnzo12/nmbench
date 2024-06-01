@@ -36,6 +36,22 @@
                 }
             },
             {
+                "command": "extension.showModFileContextMenuFromTreeView",
+                "title": "Show Mod File Context Menu",
+                "icon": {
+                    "dark": "./resources/dark/psn.svg",
+                    "light": "./resources/light/psn.svg"
+                }
+            },
+            {
+                "command": "extension.showModFileContextMenuNONMEM",
+                "title": "Show Mod File Context Menu",
+                "icon": {
+                    "dark": "./resources/dark/nonmem.svg",
+                    "light": "./resources/light/nonmem.svg"
+                }
+            },
+            {
                 "command": "extension.showSumoCommand",
                 "title": "Show Sumo Command"
             },
@@ -71,7 +87,7 @@
         "menus": {
             "view/item/context": [
                 {
-                    "command": "extension.showModFileContextMenu",
+                    "command": "extension.showModFileContextMenuFromTreeView",
                     "when": "viewItem == modFile",
                     "group": "PsN operations"
                 },
@@ -104,6 +120,11 @@
                 }
             ],
             "editor/title": [
+                {
+                    "command": "extension.showModFileContextMenuNONMEM",
+                    "when": "resourceExtname == .mod || resourceExtname == .ctl",
+                    "group": "navigation"
+                },
                 {
                     "command": "extension.showModFileContextMenu",
                     "when": "resourceExtname == .mod || resourceExtname == .ctl",
