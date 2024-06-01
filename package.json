@@ -1,27 +1,18 @@
 {
     "name": "nmbench",
     "displayName": "nmbench",
-    "description": "An extension to view and manage .mod and .ctl files",
-    "version": "0.0.1",
+    "description": "VS Code extension for NONMEM run management",
+    "version": "0.0.9",
     "engines": {
         "vscode": "^1.60.0"
     },
-    "activationEvents": [
-        "onCommand:extension.manageRScriptCommand",
-        "onCommand:extension.openModFile",
-        "onCommand:extension.showModFileContextMenu",
-        "onCommand:extension.showSumoCommand",
-        "onCommand:extension.showRScriptCommand",
-        "onCommand:extension.showLinkedFiles",
-        "onCommand:extension.refreshModFileViewer",
-        "onView:modFileViewer"
-    ],
+    "activationEvents": [],
     "main": "./out/extension.js",
     "contributes": {
         "commands": [
             {
                 "command": "extension.manageRScriptCommand",
-                "title": "Manage R Script Command"
+                "title": "Show R Scripts"
             },
             {
                 "command": "extension.openModFile",
@@ -29,7 +20,7 @@
             },
             {
                 "command": "extension.showModFileContextMenu",
-                "title": "Show Mod File Context Menu",
+                "title": "PsN tools",
                 "icon": {
                     "dark": "./resources/dark/psn.svg",
                     "light": "./resources/light/psn.svg"
@@ -37,7 +28,7 @@
             },
             {
                 "command": "extension.showModFileContextMenuFromTreeView",
-                "title": "Show Mod File Context Menu",
+                "title": "Run PsN tool",
                 "icon": {
                     "dark": "./resources/dark/psn.svg",
                     "light": "./resources/light/psn.svg"
@@ -45,7 +36,7 @@
             },
             {
                 "command": "extension.showModFileContextMenuNONMEM",
-                "title": "Show Mod File Context Menu",
+                "title": "Run NONMEM command",
                 "icon": {
                     "dark": "./resources/dark/nonmem.svg",
                     "light": "./resources/light/nonmem.svg"
@@ -53,11 +44,11 @@
             },
             {
                 "command": "extension.showSumoCommand",
-                "title": "Show Sumo Command"
+                "title": "Model fit summary"
             },
             {
                 "command": "extension.showRScriptCommandFromEditor",
-                "title": "Show R Script Command",
+                "title": "Run R script",
                 "icon": {
                     "dark": "./resources/dark/r.svg",
                     "light": "./resources/light/r.svg"
@@ -65,11 +56,11 @@
             },
             {
                 "command": "extension.showRScriptCommandFromTreeView",
-                "title": "Show R Script Command"
+                "title": "Run R script"
             },
             {
                 "command": "extension.showLinkedFiles",
-                "title": "Show Linked Files"
+                "title": "Show related Files"
             },
             {
                 "command": "extension.refreshModFileViewer",
@@ -80,11 +71,21 @@
                 }
             }
         ],
+        "keybindings": [
+            {
+                "command": "extension.showModFileContextMenuFromTreeView",
+                "key": "alt+E"
+            },
+            {
+                "command": "extension.showRScriptCommandFromTreeView",
+                "key": "alt+R"
+            }
+        ],
         "views": {
             "explorer": [
                 {
                     "id": "modFileViewer",
-                    "name": "NM model viewer"
+                    "name": "NONMEM bench"
                 }
             ]
         },
@@ -93,27 +94,27 @@
                 {
                     "command": "extension.showModFileContextMenuFromTreeView",
                     "when": "viewItem == modFile",
-                    "group": "PsN operations"
+                    "group": "1.PsN operations"
                 },
                 {
                     "command": "extension.showSumoCommand",
                     "when": "viewItem == modFile",
-                    "group": "PsN operations"
+                    "group": "1.PsN operations"
                 },
                 {
                     "command": "extension.showLinkedFiles",
                     "when": "viewItem == modFile",
-                    "group": "navigation"
+                    "group": "2.Navigation"
                 },
                 {
                     "command": "extension.showRScriptCommandFromTreeView",
                     "when": "viewItem == modFile || viewItem == modFolder",
-                    "group": "Rscript operations"
+                    "group": "3.Rscript operations"
                 },
                 {
                     "command": "extension.manageRScriptCommand",
                     "when": "viewItem == modFile",
-                    "group": "Rscript operations"
+                    "group": "3.Rscript operations"
                 }
             ],
             "view/title": [

@@ -121,7 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     let openModFileDisposable = vscode.commands.registerCommand('extension.openModFile', (uri: vscode.Uri) => {
         vscode.workspace.openTextDocument(uri).then(doc => {
-            vscode.window.showTextDocument(doc);
+            vscode.window.showTextDocument(doc, vscode.ViewColumn.One, true);
         });
     });
     context.subscriptions.push(openModFileDisposable);
