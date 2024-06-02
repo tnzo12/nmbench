@@ -73,6 +73,10 @@
         ],
         "keybindings": [
             {
+                "command": "extension.showSumoCommand",
+                "key": "alt+D"
+            },
+            {
                 "command": "extension.showModFileContextMenuFromTreeView",
                 "key": "alt+E"
             },
