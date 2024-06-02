@@ -69,6 +69,14 @@
                     "dark": "./resources/dark/refresh.svg",
                     "light": "./resources/light/refresh.svg"
                 }
+            },
+            {
+                "command": "extension.showHeatmap",
+                "title": "Show Heatmap",
+                "icon": {
+                    "dark": "./resources/dark/mat.svg",
+                    "light": "./resources/light/mat.svg"
+                }
             }
         ],
         "keybindings": [
@@ -142,6 +150,11 @@
                 {
                     "command": "extension.showRScriptCommandFromEditor",
                     "when": "resourceExtname == .mod || resourceExtname == .ctl",
+                    "group": "navigation"
+                },
+                {
+                    "command": "extension.showHeatmap",
+                    "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor",
                     "group": "navigation"
                 }
             ]

@@ -297,6 +297,30 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
     context.subscriptions.push(showLinkedFilesDisposable);
+    
+    let showHeatmapDisposable = vscode.commands.registerCommand('extension.showHeatmap', function () {
+        const editor = vscode.window.activeTextEditor;
+
+        if (editor) {
+            const content = editor.document.getText();
+            const tables = parseTables(content);
+
+            const panel = vscode.window.createWebviewPanel(
+                'heatmapViewer',
+                'Heatmap Viewer',
+                vscode.ViewColumn.One,
+                {
+                    enableScripts: true
+                }
+            );
+
+            panel.webview.html = getWebviewContent_heatmap(tables);
+        } else {
+            vscode.window.showErrorMessage('No active editor found. Please open a file first.');
+        }
+    });
+
+    context.subscriptions.push(showHeatmapDisposable);
 }
 
 function getWebviewContent(output: string): string {
@@ -351,6 +375,87 @@ function getWebviewContent(output: string): string {
         </body>
         </html>
     `;
+}
+
+function parseTables(content: string) {
+    const tables = content.split(/TABLE\s/).filter((section: string) => section.trim() !== '');
+    return tables.map((table: string) => {
+        const rows = table.trim().split('\n');
+        return rows.map((row: string) => row.trim().split(/\s+/).map(cell => parseFloat(cell) || cell));
+    });
+}
+
+function getWebviewContent_heatmap(tables: any[]) {
+    // Find the maximum and minimum values for off-diagonal elements
+    let min = Number.MAX_VALUE;
+    let max = Number.MIN_VALUE;
+    tables.forEach(table => {
+        table.forEach((row: any[], rowIndex: any) => {
+            row.forEach((cell, colIndex) => {
+                if (rowIndex-1 !== colIndex) { // Off-diagonal element
+                    if (!isNaN(cell)) {
+                        min = Math.min(min, cell);
+                        max = Math.max(max, cell);
+                    }
+                }
+            });
+        });
+    });
+
+    // Convert tables to HTML table format
+    const tablesHTML = tables.map(table => {
+        const rowsHTML = table.map((row: any[], rowIndex: any) => {
+            if (rowIndex === 0) {return '';} // Skip the first row
+            const cellsHTML = row.map((cell, colIndex) => {
+                const isOffDiagonal = rowIndex-1 !== colIndex;
+                const cellStyle = isOffDiagonal ? `style="background-color: ${getColor(cell, min, max)}"` : '';
+                return `<td ${cellStyle}>${cell}</td>`;
+            }).join('');
+            return `<tr>${cellsHTML}</tr>`;
+        }).join('');
+        return `<table>${rowsHTML}</table>`;
+    }).join('<br><br>');
+
+    // HTML template with monospaced font
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>Heatmap Viewer</title>
+            <style>
+                body {
+                    font-family: monospace;
+                }
+                table {
+                    border-collapse: separate;
+                    margin-bottom: 10px;
+                    font-size: smaller;
+                }
+                td {
+                    border-radius: 3px;
+                    border: 1px;
+                    padding: 3px;
+                }
+            </style>
+        </head>
+        <body>
+            ${tablesHTML}
+        </body>
+        </html>`;
+}
+function getColor(value: number, min: number, max: number): string {
+    
+    const range = Math.max(Math.abs(min), Math.abs(max)); // select the largest val.
+    const normalizedValue = value/range;
+
+    const hue = 120 * (1 - normalizedValue);
+
+    if (normalizedValue === 0) {
+        return `hsl(0, 0%, 60%, 30%)`;
+    }
+
+    return `hsl(${hue}, 100%, 50%, 60%)`;
 }
 
 export function deactivate() {}
