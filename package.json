@@ -2,11 +2,10 @@
     "name": "nmbench",
     "displayName": "nmbench",
     "description": "VS Code extension for NONMEM run management",
-    "author": {
-        "name": "Woojin Jung"
-      },
-      "categories": ["Other"],
-      "icon": "resources/logo.png",
+    "author": {"name": "Woojin Jung"},
+    "categories": ["Other"],
+    "icon": "resources/logo.png",
+    "publisher": "Woojin Jung",
     "version": "0.0.1",
     "engines": {
         "vscode": "^1.89.0"
