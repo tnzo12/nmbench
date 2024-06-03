@@ -19,7 +19,7 @@ Editor functions (as a button top-right)
 More will be added in demand...
 
 > Demo
-> ![Demo](https://github.com/tnzo12/nmbench/blob/main/resources/demo.gif)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo.gif)
 
 ## Requirements
 The extension is made in follwing system settings:
