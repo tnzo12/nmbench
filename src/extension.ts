@@ -672,6 +672,8 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
 
                             const xGap = 0.02; // 서브플롯 간 수평 여백 비율
                             const yGap = 0.02; // 서브플롯 간 수직 여백 비율
+                            const annotations = [];
+
                             groups.forEach(function (group, i) {
                                 const filteredData = data.filter(row => row[config.group] === group);
                                 const trace = {
@@ -707,10 +709,22 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                 const yDomainEnd = 1 - (row - 1) / numRows - yGap;
                                 layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: false };
                                 layout["yaxis" + (i + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: false };
+
+                                // Add title for each subplot
+                                annotations.push({
+                                    x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
+                                    y: yDomainEnd,
+                                    xref: 'paper',
+                                    yref: 'paper',
+                                    text: group,
+                                    showarrow: false,
+                                    xanchor: 'center',
+                                    yanchor: 'bottom'
+                                });
                             });
 
                             // Add common x and y axis titles
-                            layout.annotations = [
+                            layout.annotations = annotations.concat([
                                 {
                                     text: config.x,
                                     x: 0.5,
@@ -732,7 +746,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                     yanchor: 'middle',
                                     textangle: -90
                                 }
-                            ];
+                            ]);
                         } else {
                             // 하나의 플롯에 모든 그룹을 표시하는 모드
                             groups.forEach(function (group) {
@@ -773,5 +787,4 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
         </html>
     `;
 }
-
 export function deactivate() {}
