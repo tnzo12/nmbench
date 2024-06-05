@@ -295,7 +295,6 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('extension.showRScriptCommandFromEditor', (uri: vscode.Uri) => {
             showRScriptCommand(context, [uri]);
         }),
-        // 단일 선택만 지원하는 showLinkedFiles 명령어
         vscode.commands.registerCommand('extension.showLinkedFiles', async (node: ModFile) => {
             if (!node) {
                 vscode.window.showErrorMessage('No file selected.');
@@ -311,7 +310,6 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
         
-                // 확장자를 제외하고 이름이 같은 파일 찾기
                 const linkedFiles = files
                     .filter(file => path.basename(file, path.extname(file)) === baseName && file !== path.basename(node.uri.fsPath))
                     .map(file => ({
@@ -319,34 +317,33 @@ export function activate(context: vscode.ExtensionContext) {
                         description: path.join(dir, file)
                     }));
                     
-        // $TABLE을 포함한 라인에서 FILE= 다음에 오는 이름에 해당하는 파일 찾기
-        const additionalFiles: { label: string; description: string; }[] = [];
-        const fileContent = await readFile(node.uri.fsPath, 'utf-8');
-        const tableLines = fileContent.split('\n').filter(line => line.includes('$TABLE'));
-        tableLines.forEach(line => {
-            const match = line.match(/\bFILE\s*=\s*(\S+)/i);
-            if (match) {
-                const fileName = match[1];
-                const foundFiles = files
-                    .filter(file => path.basename(file) === fileName)
-                    .map(file => ({
-                        label: path.basename(file),
-                        description: path.join(dir, file)
-                    }));
-                additionalFiles.push(...foundFiles);
-            }
-        });
+                const additionalFiles: { label: string; description: string; }[] = [];
+                const fileContent = await readFile(node.uri.fsPath, 'utf-8');
+                const tableLines = fileContent.split('\n').filter(line => line.includes('$TABLE'));
+                tableLines.forEach(line => {
+                    const match = line.match(/\bFILE\s*=\s*(\S+)/i);
+                    if (match) {
+                        const fileName = match[1];
+                        const foundFiles = files
+                            .filter(file => path.basename(file) === fileName)
+                            .map(file => ({
+                                label: path.basename(file),
+                                description: path.join(dir, file)
+                            }));
+                        additionalFiles.push(...foundFiles);
+                    }
+                });
 
-        const allFiles = [...linkedFiles, ...additionalFiles];
-        if (allFiles.length === 0) {
-            vscode.window.showInformationMessage('No linked files found.');
-            return;
-        }
+                const allFiles = [...linkedFiles, ...additionalFiles];
+                if (allFiles.length === 0) {
+                    vscode.window.showInformationMessage('No linked files found.');
+                    return;
+                }
 
-        vscode.window.showQuickPick(allFiles).then(selected => {
-            if (selected) {
-                vscode.workspace.openTextDocument(vscode.Uri.file(selected.description!)).then(doc => {
-                    vscode.window.showTextDocument(doc);
+                vscode.window.showQuickPick(allFiles).then(selected => {
+                    if (selected) {
+                        vscode.workspace.openTextDocument(vscode.Uri.file(selected.description!)).then(doc => {
+                            vscode.window.showTextDocument(doc);
                         });
                     }
                 });
@@ -403,6 +400,33 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeActiveTerminal(() => {
         modFileViewerProvider.refresh();
     });
+    context.subscriptions.push(
+        vscode.commands.registerCommand('extension.readNmTableAndPlot', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const document = editor.document;
+                const fileName = document.fileName;
+
+                if (fileName.match(/sdtab\d*|patab\d*/)) {
+                    const data = await readNmTable(fileName);
+                    const panel = vscode.window.createWebviewPanel(
+                        'nmTablePlot',
+                        'NM Table Plot',
+                        vscode.ViewColumn.One,
+                        { enableScripts: true }
+                    );
+                    panel.webview.html = getWebviewContent_plotly(data);
+
+                    // Handle messages from the webview
+                    panel.webview.onDidReceiveMessage(message => {
+                        if (message.command === 'updatePlot') {
+                            panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
+                        }
+                    });
+                }
+            }
+        })
+    );
 }
 
 function getWebviewContent(output: string): string {
@@ -535,5 +559,141 @@ function getColor(value: number, min: number, max: number): string {
 
     return `hsl(${hue}, 100%, 50%, 60%)`;
 }
+
+async function readNmTable(filePath: string): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+        fs.readFile(filePath, 'utf8', (err, data) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            const lines = data.split('\n').filter(line => line.trim() !== '');
+            const header = lines[1].trim().split(/\s+/);
+            const rows = lines.slice(2).map(line => {
+                const values = line.trim().split(/\s+/);
+                const row: { [key: string]: string | number } = {};
+                header.forEach((col, index) => {
+                    row[col] = isNaN(Number(values[index])) ? values[index] : Number(values[index]);
+                });
+                return row;
+            });
+            resolve(rows);
+        });
+    });
+}
+
+
+function getWebviewContent_plotly(data: any[]): string {
+    const columns = Object.keys(data[0]);
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>NM Table Plot</title>
+            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <style>
+                body { margin: 0; padding: 0; }
+                #plot { width: 100vw; height: 100vh; }
+                .controls { position: absolute; top: 10px; left: 10px; z-index: 100; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); }
+            </style>
+        </head>
+        <body>
+            <div class="controls">
+                <label for="xSelect">X-axis:</label>
+                <select id="xSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
+                <label for="ySelect">Y-axis:</label>
+                <select id="ySelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
+                <label for="groupSelect">Grouping Variable:</label>
+                <select id="groupSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
+                <button id="updatePlot">Update Plot</button>
+            </div>
+            <div id="plot"></div>
+            <script>
+                const vscode = acquireVsCodeApi();
+                document.getElementById("updatePlot").addEventListener("click", function () {
+                    const x = document.getElementById("xSelect").value;
+                    const y = document.getElementById("ySelect").value;
+                    const group = document.getElementById("groupSelect").value;
+                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group } });
+                });
+
+                window.addEventListener("message", function (event) {
+                    const message = event.data;
+                    if (message.command === "plotData") {
+                        const data = message.data;
+                        const config = message.config;
+                        const groups = Array.from(new Set(data.map(row => row[config.group])));
+                        const plotWidth = document.getElementById("plot").clientWidth;
+                        let numCols = Math.floor(plotWidth / 250); // 250px per plot column
+                        if (numCols < 1) numCols = 1; // 최소 1열은 유지
+                        const numRows = Math.ceil(groups.length / numCols);
+                        const figData = [];
+                        const layout = {
+                            title: "NM Table Plot",
+                            showlegend: false,
+                            margin: { t: 60, b: 40, l: 40, r: 20 },
+                            grid: { rows: numRows, columns: numCols, pattern: "independent" }
+                        };
+
+                        const xGap = 0.015; // 서브플롯 간 수평 여백 비율
+                        const yGap = 0.015; // 서브플롯 간 수직 여백 비율
+                        groups.forEach(function (group, i) {
+                            const filteredData = data.filter(row => row[config.group] === group);
+                            const trace = {
+                                x: filteredData.map(row => row[config.x]),
+                                y: filteredData.map(row => row[config.y]),
+                                type: "scatter",
+                                mode: "lines+markers",
+                                name: group,
+                                xaxis: "x" + (i + 1),
+                                yaxis: "y" + (i + 1)
+                            };
+                            figData.push(trace);
+                            const row = Math.floor(i / numCols) + 1;
+                            const col = (i % numCols) + 1;
+                            const xDomainStart = (col - 1) / numCols + xGap;
+                            const xDomainEnd = col / numCols - xGap;
+                            const yDomainStart = 1 - row / numRows + yGap;
+                            const yDomainEnd = 1 - (row - 1) / numRows - yGap;
+                            layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: false };
+                            layout["yaxis" + (i + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: false };
+                        });
+
+                        // Add common x and y axis titles
+                        layout.annotations = [
+                            {
+                                text: config.x,
+                                x: 0.5,
+                                xref: 'paper',
+                                y: 0,
+                                yref: 'paper',
+                                showarrow: false,
+                                xanchor: 'center',
+                                yanchor: 'top'
+                            },
+                            {
+                                text: config.y,
+                                x: 0,
+                                xref: 'paper',
+                                y: 0.5,
+                                yref: 'paper',
+                                showarrow: false,
+                                xanchor: 'right',
+                                yanchor: 'middle',
+                                textangle: -90
+                            }
+                        ];
+
+                        Plotly.newPlot("plot", figData, layout, { responsive: true });
+                    }
+                });
+            </script>
+        </body>
+        </html>
+    `;
+}
+
 
 export function deactivate() {}
