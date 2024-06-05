@@ -15,6 +15,10 @@
     "contributes": {
         "commands": [
             {
+                "command": "extension.readNmTableAndPlot",
+                "title": "Table and Plot"
+            },
+            {
                 "command": "extension.manageRScriptCommand",
                 "title": "Show R Scripts"
             },
@@ -142,6 +146,11 @@
             ],
             "editor/title": [
                 {
+                    "command": "extension.readNmTableAndPlot",
+                    
+                    "group": "navigation"
+                },
+                {
                     "command": "extension.showModFileContextMenuNONMEM",
                     "when": "resourceExtname == .mod || resourceExtname == .ctl",
                     "group": "navigation"
@@ -158,7 +167,7 @@
                 },
                 {
                     "command": "extension.showHeatmap",
-                    "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor",
+                    "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor || resourceExtname == .ext",
                     "group": "navigation"
                 }
             ]
