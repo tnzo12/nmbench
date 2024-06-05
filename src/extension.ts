@@ -593,6 +593,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
     const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
     const axisColor = isDarkTheme ? 'white' : 'black';
     const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
+    const controlTextColor = isDarkTheme ? 'white' : 'black';
 
     return `
         <!DOCTYPE html>
@@ -605,11 +606,27 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
             <style>
                 body { margin: 0; padding: 0; }
                 #plot { width: 100vw; height: 100vh; background: transparent; }
-                .controls { position: absolute; top: 10px; left: 10px; z-index: 100; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); }
+                .controls { 
+                    position: absolute; 
+                    top: 10px; 
+                    left: 10px; 
+                    z-index: 100; 
+                    background: rgba(255, 255, 255, 0.8); 
+                    padding: 10px; 
+                    border-radius: 5px; 
+                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); 
+                    cursor: move; 
+                    display: flex; 
+                    flex-direction: column; 
+                    gap: 5px; 
+                    color: ${controlTextColor}; 
+                }
+                .controls label, .controls select, .controls button { font-size: 0.8em; }
+                .controls button { margin-top: 5px; }
             </style>
         </head>
         <body>
-            <div class="controls">
+            <div class="controls" id="controls">
                 <label for="xSelect">X-axis:</label>
                 <select id="xSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
                 <label for="ySelect">Y-axis:</label>
@@ -626,7 +643,28 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                 const vscode = acquireVsCodeApi();
                 let yxLineAdded = false;
                 let subplotMode = true;
-                const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+                const colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
+
+                const controls = document.getElementById("controls");
+                let isDragging = false;
+                let offsetX, offsetY;
+
+                controls.addEventListener("mousedown", (e) => {
+                    isDragging = true;
+                    offsetX = e.clientX - controls.offsetLeft;
+                    offsetY = e.clientY - controls.offsetTop;
+                });
+
+                document.addEventListener("mousemove", (e) => {
+                    if (isDragging) {
+                        controls.style.left = (e.clientX - offsetX) + "px";
+                        controls.style.top = (e.clientY - offsetY) + "px";
+                    }
+                });
+
+                document.addEventListener("mouseup", () => {
+                    isDragging = false;
+                });
 
                 document.getElementById("updatePlot").addEventListener("click", function () {
                     updatePlot();
@@ -643,7 +681,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                 });
 
                 document.getElementById("clearPlot").addEventListener("click", function () {
-                    Plotly.purge('plot');
+                    Plotly.purge("plot");
                 });
 
                 function updatePlot() {
@@ -661,9 +699,9 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                         const groups = Array.from(new Set(data.map(row => row[config.group])));
                         const figData = [];
                         const layout = {
-                            title: "NM Table Plot",
                             showlegend: true,
-                            margin: { t: 20, b: 40, l: 40, r: 20 },
+                            legend: { orientation: "h", y: -0.01 }, // 레전드를 아래로 이동
+                            margin: { t: 20, b: 20, l: 40, r: 20 },
                             paper_bgcolor: '${backgroundColor}',
                             plot_bgcolor: '${backgroundColor}',
                             font: { color: '${axisColor}' }
@@ -688,10 +726,11 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                         y: filteredData.map(row => row[yAxis]),
                                         type: "scatter",
                                         mode: "lines+markers",
-                                        name: group + ' - ' + yAxis,
+                                        name: yAxis,
                                         xaxis: "x" + (i + 1),
                                         yaxis: "y" + (i + 1),
-                                        marker: { color: colors[j % colors.length] }
+                                        marker: { color: colors[j % colors.length] },
+                                        showlegend: i === 0 // 레전드는 첫 번째 그룹에만 표시
                                     };
                                     figData.push(trace);
                                     if (config.addYXLine) {
@@ -702,7 +741,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                             y: [minVal, maxVal],
                                             type: "scatter",
                                             mode: "lines",
-                                            line: { dash: 'dash', color: 'grey' },
+                                            line: { dash: "dash", color: "grey" },
                                             showlegend: false,
                                             xaxis: "x" + (i + 1),
                                             yaxis: "y" + (i + 1)
@@ -723,12 +762,12 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                 annotations.push({
                                     x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
                                     y: yDomainEnd,
-                                    xref: 'paper',
-                                    yref: 'paper',
+                                    xref: "paper",
+                                    yref: "paper",
                                     text: group,
                                     showarrow: false,
-                                    xanchor: 'center',
-                                    yanchor: 'bottom'
+                                    xanchor: "center",
+                                    yanchor: "bottom"
                                 });
                             });
 
@@ -737,37 +776,38 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                 {
                                     text: config.x,
                                     x: 0.5,
-                                    xref: 'paper',
+                                    xref: "paper",
                                     y: 0,
-                                    yref: 'paper',
+                                    yref: "paper",
                                     showarrow: false,
-                                    xanchor: 'center',
-                                    yanchor: 'top'
+                                    xanchor: "center",
+                                    yanchor: "top"
                                 },
                                 {
                                     text: config.y.join(", "),
                                     x: 0,
-                                    xref: 'paper',
+                                    xref: "paper",
                                     y: 0.5,
-                                    yref: 'paper',
+                                    yref: "paper",
                                     showarrow: false,
-                                    xanchor: 'right',
-                                    yanchor: 'middle',
+                                    xanchor: "right",
+                                    yanchor: "middle",
                                     textangle: -90
                                 }
                             ]);
                         } else {
                             // 하나의 플롯에 모든 그룹을 표시하는 모드
                             config.y.forEach((yAxis, j) => {
-                                groups.forEach(function (group) {
+                                groups.forEach(function (group, i) {
                                     const filteredData = data.filter(row => row[config.group] === group);
                                     const trace = {
                                         x: filteredData.map(row => row[config.x]),
                                         y: filteredData.map(row => row[yAxis]),
                                         type: "scatter",
                                         mode: "lines+markers",
-                                        name: group + ' - ' + yAxis,
-                                        marker: { color: colors[j % colors.length] }
+                                        name: yAxis,
+                                        marker: { color: colors[j % colors.length] },
+                                        showlegend: i === 0 // 레전드는 첫 번째 그룹에만 표시
                                     };
                                     figData.push(trace);
                                     if (config.addYXLine) {
@@ -778,7 +818,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                             y: [minVal, maxVal],
                                             type: "scatter",
                                             mode: "lines",
-                                            line: { dash: 'dash', color: 'grey' },
+                                            line: { dash: "dash", color: "grey" },
                                             showlegend: false
                                         };
                                         figData.push(lineTrace);
@@ -799,4 +839,6 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
         </html>
     `;
 }
+
+
 export function deactivate() {}
