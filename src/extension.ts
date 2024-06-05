@@ -618,25 +618,34 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                 <select id="groupSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
                 <button id="updatePlot">Update Plot</button>
                 <button id="addYXLine">Add y=x Line</button>
+                <button id="toggleSubplot">Toggle Subplot</button>
             </div>
             <div id="plot"></div>
             <script>
                 const vscode = acquireVsCodeApi();
                 let yxLineAdded = false;
+                let subplotMode = true;
+
                 document.getElementById("updatePlot").addEventListener("click", function () {
-                    const x = document.getElementById("xSelect").value;
-                    const y = document.getElementById("ySelect").value;
-                    const group = document.getElementById("groupSelect").value;
-                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group, addYXLine: yxLineAdded } });
+                    updatePlot();
                 });
 
                 document.getElementById("addYXLine").addEventListener("click", function () {
                     yxLineAdded = !yxLineAdded;
+                    updatePlot();
+                });
+
+                document.getElementById("toggleSubplot").addEventListener("click", function () {
+                    subplotMode = !subplotMode;
+                    updatePlot();
+                });
+
+                function updatePlot() {
                     const x = document.getElementById("xSelect").value;
                     const y = document.getElementById("ySelect").value;
                     const group = document.getElementById("groupSelect").value;
-                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group, addYXLine: yxLineAdded } });
-                });
+                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group, addYXLine: yxLineAdded, subplotMode: subplotMode } });
+                }
 
                 window.addEventListener("message", function (event) {
                     const message = event.data;
@@ -644,84 +653,117 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                         const data = message.data;
                         const config = message.config;
                         const groups = Array.from(new Set(data.map(row => row[config.group])));
-                        const plotWidth = document.getElementById("plot").clientWidth;
-                        let numCols = Math.floor(plotWidth / 250); // 250px per plot column
-                        if (numCols < 1) numCols = 1; // 최소 1열은 유지
-                        const numRows = Math.ceil(groups.length / numCols);
                         const figData = [];
                         const layout = {
                             title: "NM Table Plot",
                             showlegend: false,
-                            margin: { t: 60, b: 40, l: 40, r: 20 },
+                            margin: { t: 20, b: 40, l: 40, r: 20 },
                             paper_bgcolor: '${backgroundColor}',
                             plot_bgcolor: '${backgroundColor}',
-                            font: { color: '${axisColor}' },
-                            grid: { rows: numRows, columns: numCols, pattern: "independent" }
+                            font: { color: '${axisColor}' }
                         };
 
-                        const xGap = 0.01; // 서브플롯 간 수평 여백 비율
-                        const yGap = 0.01; // 서브플롯 간 수직 여백 비율
-                        groups.forEach(function (group, i) {
-                            const filteredData = data.filter(row => row[config.group] === group);
-                            const trace = {
-                                x: filteredData.map(row => row[config.x]),
-                                y: filteredData.map(row => row[config.y]),
-                                type: "scatter",
-                                mode: "lines+markers",
-                                name: group,
-                                xaxis: "x" + (i + 1),
-                                yaxis: "y" + (i + 1)
-                            };
-                            figData.push(trace);
-                            if (config.addYXLine) {
-                                const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[config.y])));
-                                const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[config.y])));
-                                const lineTrace = {
-                                    x: [minVal, maxVal],
-                                    y: [minVal, maxVal],
+                        if (config.subplotMode) {
+                            const plotWidth = document.getElementById("plot").clientWidth;
+                            let numCols = Math.floor(plotWidth / 250); // 250px per plot column
+                            if (numCols < 1) numCols = 1; // 최소 1열은 유지
+                            const numRows = Math.ceil(groups.length / numCols);
+                            layout.grid = { rows: numRows, columns: numCols, pattern: "independent" };
+
+                            const xGap = 0.02; // 서브플롯 간 수평 여백 비율
+                            const yGap = 0.02; // 서브플롯 간 수직 여백 비율
+                            groups.forEach(function (group, i) {
+                                const filteredData = data.filter(row => row[config.group] === group);
+                                const trace = {
+                                    x: filteredData.map(row => row[config.x]),
+                                    y: filteredData.map(row => row[config.y]),
                                     type: "scatter",
-                                    mode: "lines",
-                                    line: { dash: 'dash', color: 'grey' },
-                                    showlegend: false,
+                                    mode: "lines+markers",
+                                    name: group,
                                     xaxis: "x" + (i + 1),
                                     yaxis: "y" + (i + 1)
                                 };
-                                figData.push(lineTrace);
-                            }
-                            const row = Math.floor(i / numCols) + 1;
-                            const col = (i % numCols) + 1;
-                            const xDomainStart = (col - 1) / numCols + xGap;
-                            const xDomainEnd = col / numCols - xGap;
-                            const yDomainStart = 1 - row / numRows + yGap;
-                            const yDomainEnd = 1 - (row - 1) / numRows - yGap;
-                            layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: false };
-                            layout["yaxis" + (i + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: false };
-                        });
+                                figData.push(trace);
+                                if (config.addYXLine) {
+                                    const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[config.y])));
+                                    const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[config.y])));
+                                    const lineTrace = {
+                                        x: [minVal, maxVal],
+                                        y: [minVal, maxVal],
+                                        type: "scatter",
+                                        mode: "lines",
+                                        line: { dash: 'dash', color: 'grey' },
+                                        showlegend: false,
+                                        xaxis: "x" + (i + 1),
+                                        yaxis: "y" + (i + 1)
+                                    };
+                                    figData.push(lineTrace);
+                                }
+                                const row = Math.floor(i / numCols) + 1;
+                                const col = (i % numCols) + 1;
+                                const xDomainStart = (col - 1) / numCols + xGap;
+                                const xDomainEnd = col / numCols - xGap;
+                                const yDomainStart = 1 - row / numRows + yGap;
+                                const yDomainEnd = 1 - (row - 1) / numRows - yGap;
+                                layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: false };
+                                layout["yaxis" + (i + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: false };
+                            });
 
-                        // Add common x and y axis titles
-                        layout.annotations = [
-                            {
-                                text: config.x,
-                                x: 0.5,
-                                xref: 'paper',
-                                y: 0,
-                                yref: 'paper',
-                                showarrow: false,
-                                xanchor: 'center',
-                                yanchor: 'top'
-                            },
-                            {
-                                text: config.y,
-                                x: 0,
-                                xref: 'paper',
-                                y: 0.5,
-                                yref: 'paper',
-                                showarrow: false,
-                                xanchor: 'right',
-                                yanchor: 'middle',
-                                textangle: -90
-                            }
-                        ];
+                            // Add common x and y axis titles
+                            layout.annotations = [
+                                {
+                                    text: config.x,
+                                    x: 0.5,
+                                    xref: 'paper',
+                                    y: 0,
+                                    yref: 'paper',
+                                    showarrow: false,
+                                    xanchor: 'center',
+                                    yanchor: 'top'
+                                },
+                                {
+                                    text: config.y,
+                                    x: 0,
+                                    xref: 'paper',
+                                    y: 0.5,
+                                    yref: 'paper',
+                                    showarrow: false,
+                                    xanchor: 'right',
+                                    yanchor: 'middle',
+                                    textangle: -90
+                                }
+                            ];
+                        } else {
+                            // 하나의 플롯에 모든 그룹을 표시하는 모드
+                            groups.forEach(function (group) {
+                                const filteredData = data.filter(row => row[config.group] === group);
+                                const trace = {
+                                    x: filteredData.map(row => row[config.x]),
+                                    y: filteredData.map(row => row[config.y]),
+                                    type: "scatter",
+                                    mode: "lines+markers",
+                                    name: group
+                                };
+                                figData.push(trace);
+                                if (config.addYXLine) {
+                                    const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[config.y])));
+                                    const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[config.y])));
+                                    const lineTrace = {
+                                        x: [minVal, maxVal],
+                                        y: [minVal, maxVal],
+                                        type: "scatter",
+                                        mode: "lines",
+                                        line: { dash: 'dash', color: 'grey' },
+                                        showlegend: false
+                                    };
+                                    figData.push(lineTrace);
+                                }
+                            });
+
+                            // Add common x and y axis titles
+                            layout.xaxis = { title: config.x, showticklabels: true };
+                            layout.yaxis = { title: config.y, showticklabels: true };
+                        }
 
                         Plotly.newPlot("plot", figData, layout, { responsive: true });
                     }
@@ -731,4 +773,5 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
         </html>
     `;
 }
+
 export function deactivate() {}
