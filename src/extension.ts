@@ -415,18 +415,22 @@ export function activate(context: vscode.ExtensionContext) {
                         vscode.ViewColumn.One,
                         { enableScripts: true }
                     );
-                    panel.webview.html = getWebviewContent_plotly(data);
+
+                    // Get the current theme
+                    const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+                    panel.webview.html = getWebviewContent_plotly(data, theme);
 
                     // Handle messages from the webview
                     panel.webview.onDidReceiveMessage(message => {
-                        if (message.command === 'updatePlot') {
-                            panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
+                        if (message.command === "updatePlot") {
+                            panel.webview.postMessage({ command: "plotData", data: data, config: message.config });
                         }
                     });
                 }
             }
         })
     );
+
 }
 
 function getWebviewContent(output: string): string {
@@ -582,9 +586,14 @@ async function readNmTable(filePath: string): Promise<any[]> {
     });
 }
 
-
-function getWebviewContent_plotly(data: any[]): string {
+function getWebviewContent_plotly(data: any[], theme: string): string {
     const columns = Object.keys(data[0]);
+
+    // Determine colors based on the theme
+    const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
+    const axisColor = isDarkTheme ? 'white' : 'black';
+    const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
+
     return `
         <!DOCTYPE html>
         <html lang="en">
@@ -595,7 +604,7 @@ function getWebviewContent_plotly(data: any[]): string {
             <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
             <style>
                 body { margin: 0; padding: 0; }
-                #plot { width: 100vw; height: 100vh; }
+                #plot { width: 100vw; height: 100vh; background: transparent; }
                 .controls { position: absolute; top: 10px; left: 10px; z-index: 100; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); }
             </style>
         </head>
@@ -608,15 +617,25 @@ function getWebviewContent_plotly(data: any[]): string {
                 <label for="groupSelect">Grouping Variable:</label>
                 <select id="groupSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
                 <button id="updatePlot">Update Plot</button>
+                <button id="addYXLine">Add y=x Line</button>
             </div>
             <div id="plot"></div>
             <script>
                 const vscode = acquireVsCodeApi();
+                let yxLineAdded = false;
                 document.getElementById("updatePlot").addEventListener("click", function () {
                     const x = document.getElementById("xSelect").value;
                     const y = document.getElementById("ySelect").value;
                     const group = document.getElementById("groupSelect").value;
-                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group } });
+                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group, addYXLine: yxLineAdded } });
+                });
+
+                document.getElementById("addYXLine").addEventListener("click", function () {
+                    yxLineAdded = !yxLineAdded;
+                    const x = document.getElementById("xSelect").value;
+                    const y = document.getElementById("ySelect").value;
+                    const group = document.getElementById("groupSelect").value;
+                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group, addYXLine: yxLineAdded } });
                 });
 
                 window.addEventListener("message", function (event) {
@@ -634,11 +653,14 @@ function getWebviewContent_plotly(data: any[]): string {
                             title: "NM Table Plot",
                             showlegend: false,
                             margin: { t: 60, b: 40, l: 40, r: 20 },
+                            paper_bgcolor: '${backgroundColor}',
+                            plot_bgcolor: '${backgroundColor}',
+                            font: { color: '${axisColor}' },
                             grid: { rows: numRows, columns: numCols, pattern: "independent" }
                         };
 
-                        const xGap = 0.015; // 서브플롯 간 수평 여백 비율
-                        const yGap = 0.015; // 서브플롯 간 수직 여백 비율
+                        const xGap = 0.01; // 서브플롯 간 수평 여백 비율
+                        const yGap = 0.01; // 서브플롯 간 수직 여백 비율
                         groups.forEach(function (group, i) {
                             const filteredData = data.filter(row => row[config.group] === group);
                             const trace = {
@@ -651,6 +673,21 @@ function getWebviewContent_plotly(data: any[]): string {
                                 yaxis: "y" + (i + 1)
                             };
                             figData.push(trace);
+                            if (config.addYXLine) {
+                                const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[config.y])));
+                                const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[config.y])));
+                                const lineTrace = {
+                                    x: [minVal, maxVal],
+                                    y: [minVal, maxVal],
+                                    type: "scatter",
+                                    mode: "lines",
+                                    line: { dash: 'dash', color: 'grey' },
+                                    showlegend: false,
+                                    xaxis: "x" + (i + 1),
+                                    yaxis: "y" + (i + 1)
+                                };
+                                figData.push(lineTrace);
+                            }
                             const row = Math.floor(i / numCols) + 1;
                             const col = (i % numCols) + 1;
                             const xDomainStart = (col - 1) / numCols + xGap;
@@ -694,6 +731,4 @@ function getWebviewContent_plotly(data: any[]): string {
         </html>
     `;
 }
-
-
 export function deactivate() {}
