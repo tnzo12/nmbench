@@ -613,18 +613,20 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                 <label for="xSelect">X-axis:</label>
                 <select id="xSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
                 <label for="ySelect">Y-axis:</label>
-                <select id="ySelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
+                <select id="ySelect" multiple>${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
                 <label for="groupSelect">Grouping Variable:</label>
                 <select id="groupSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
                 <button id="updatePlot">Update Plot</button>
                 <button id="addYXLine">Add y=x Line</button>
                 <button id="toggleSubplot">Toggle Subplot</button>
+                <button id="clearPlot">Clear Plot</button>
             </div>
             <div id="plot"></div>
             <script>
                 const vscode = acquireVsCodeApi();
                 let yxLineAdded = false;
                 let subplotMode = true;
+                const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
 
                 document.getElementById("updatePlot").addEventListener("click", function () {
                     updatePlot();
@@ -640,11 +642,15 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                     updatePlot();
                 });
 
+                document.getElementById("clearPlot").addEventListener("click", function () {
+                    Plotly.purge('plot');
+                });
+
                 function updatePlot() {
                     const x = document.getElementById("xSelect").value;
-                    const y = document.getElementById("ySelect").value;
+                    const yOptions = Array.from(document.getElementById("ySelect").selectedOptions).map(option => option.value);
                     const group = document.getElementById("groupSelect").value;
-                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: y, group: group, addYXLine: yxLineAdded, subplotMode: subplotMode } });
+                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: yOptions, group: group, addYXLine: yxLineAdded, subplotMode: subplotMode } });
                 }
 
                 window.addEventListener("message", function (event) {
@@ -656,7 +662,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                         const figData = [];
                         const layout = {
                             title: "NM Table Plot",
-                            showlegend: false,
+                            showlegend: true,
                             margin: { t: 20, b: 40, l: 40, r: 20 },
                             paper_bgcolor: '${backgroundColor}',
                             plot_bgcolor: '${backgroundColor}',
@@ -676,31 +682,34 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
 
                             groups.forEach(function (group, i) {
                                 const filteredData = data.filter(row => row[config.group] === group);
-                                const trace = {
-                                    x: filteredData.map(row => row[config.x]),
-                                    y: filteredData.map(row => row[config.y]),
-                                    type: "scatter",
-                                    mode: "lines+markers",
-                                    name: group,
-                                    xaxis: "x" + (i + 1),
-                                    yaxis: "y" + (i + 1)
-                                };
-                                figData.push(trace);
-                                if (config.addYXLine) {
-                                    const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[config.y])));
-                                    const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[config.y])));
-                                    const lineTrace = {
-                                        x: [minVal, maxVal],
-                                        y: [minVal, maxVal],
+                                config.y.forEach((yAxis, j) => {
+                                    const trace = {
+                                        x: filteredData.map(row => row[config.x]),
+                                        y: filteredData.map(row => row[yAxis]),
                                         type: "scatter",
-                                        mode: "lines",
-                                        line: { dash: 'dash', color: 'grey' },
-                                        showlegend: false,
+                                        mode: "lines+markers",
+                                        name: group + ' - ' + yAxis,
                                         xaxis: "x" + (i + 1),
-                                        yaxis: "y" + (i + 1)
+                                        yaxis: "y" + (i + 1),
+                                        marker: { color: colors[j % colors.length] }
                                     };
-                                    figData.push(lineTrace);
-                                }
+                                    figData.push(trace);
+                                    if (config.addYXLine) {
+                                        const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[yAxis])));
+                                        const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[yAxis])));
+                                        const lineTrace = {
+                                            x: [minVal, maxVal],
+                                            y: [minVal, maxVal],
+                                            type: "scatter",
+                                            mode: "lines",
+                                            line: { dash: 'dash', color: 'grey' },
+                                            showlegend: false,
+                                            xaxis: "x" + (i + 1),
+                                            yaxis: "y" + (i + 1)
+                                        };
+                                        figData.push(lineTrace);
+                                    }
+                                });
                                 const row = Math.floor(i / numCols) + 1;
                                 const col = (i % numCols) + 1;
                                 const xDomainStart = (col - 1) / numCols + xGap;
@@ -736,7 +745,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                     yanchor: 'top'
                                 },
                                 {
-                                    text: config.y,
+                                    text: config.y.join(", "),
                                     x: 0,
                                     xref: 'paper',
                                     y: 0.5,
@@ -749,34 +758,37 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                             ]);
                         } else {
                             // 하나의 플롯에 모든 그룹을 표시하는 모드
-                            groups.forEach(function (group) {
-                                const filteredData = data.filter(row => row[config.group] === group);
-                                const trace = {
-                                    x: filteredData.map(row => row[config.x]),
-                                    y: filteredData.map(row => row[config.y]),
-                                    type: "scatter",
-                                    mode: "lines+markers",
-                                    name: group
-                                };
-                                figData.push(trace);
-                                if (config.addYXLine) {
-                                    const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[config.y])));
-                                    const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[config.y])));
-                                    const lineTrace = {
-                                        x: [minVal, maxVal],
-                                        y: [minVal, maxVal],
+                            config.y.forEach((yAxis, j) => {
+                                groups.forEach(function (group) {
+                                    const filteredData = data.filter(row => row[config.group] === group);
+                                    const trace = {
+                                        x: filteredData.map(row => row[config.x]),
+                                        y: filteredData.map(row => row[yAxis]),
                                         type: "scatter",
-                                        mode: "lines",
-                                        line: { dash: 'dash', color: 'grey' },
-                                        showlegend: false
+                                        mode: "lines+markers",
+                                        name: group + ' - ' + yAxis,
+                                        marker: { color: colors[j % colors.length] }
                                     };
-                                    figData.push(lineTrace);
-                                }
+                                    figData.push(trace);
+                                    if (config.addYXLine) {
+                                        const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[yAxis])));
+                                        const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[yAxis])));
+                                        const lineTrace = {
+                                            x: [minVal, maxVal],
+                                            y: [minVal, maxVal],
+                                            type: "scatter",
+                                            mode: "lines",
+                                            line: { dash: 'dash', color: 'grey' },
+                                            showlegend: false
+                                        };
+                                        figData.push(lineTrace);
+                                    }
+                                });
                             });
 
                             // Add common x and y axis titles
                             layout.xaxis = { title: config.x, showticklabels: true };
-                            layout.yaxis = { title: config.y, showticklabels: true };
+                            layout.yaxis = { title: config.y.join(", "), showticklabels: true };
                         }
 
                         Plotly.newPlot("plot", figData, layout, { responsive: true });
