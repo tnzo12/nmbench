@@ -724,12 +724,6 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                     const selectedGroupValues = groupValues.length > 0 ? groupValues : Array.from(new Set(currentData.map(row => row[group])));
                     const filteredData = currentData.filter(row => selectedGroupValues.includes(row[group]));
 
-                    console.log("X-axis:", x);
-                    console.log("Y-axis:", yOptions);
-                    console.log("Group:", group);
-                    console.log("Selected Group Values:", selectedGroupValues);
-                    console.log("Filtered Data:", filteredData);
-
                     vscode.postMessage({ command: "updatePlot", config: { x: x, y: yOptions, group: group, groupValues: selectedGroupValues, addYXLine: yxLineAdded, subplotMode: subplotMode, xTicksVisible: xTicksVisible, yTicksVisible: yTicksVisible }, data: filteredData });
                 }
 
@@ -738,9 +732,6 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                     if (message.command === "plotData") {
                         currentData = message.data;
                         const config = message.config;
-
-                        console.log("Received Data:", currentData);
-                        console.log("Plot Config:", config);
 
                         const groups = config.groupValues.length > 0 ? config.groupValues : Array.from(new Set(currentData.map(row => row[config.group])));
                         const figData = [];
@@ -797,10 +788,10 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                         figData.push(lineTrace);
                                     }
                                 });
-                                const row = Math.floor(i / numCols) + 1;
-                                const col = (i % numCols) + 1;
-                                const xDomainStart = (col - 1) / numCols + xGap;
-                                const xDomainEnd = col / numCols - xGap;
+                                const row = Math.floor(i / adjustedNumCols) + 1;
+                                const col = (i % adjustedNumCols) + 1;
+                                const xDomainStart = (col - 1) / adjustedNumCols + xGap;
+                                const xDomainEnd = col / adjustedNumCols - xGap;
                                 const yDomainStart = 1 - row / numRows + yGap;
                                 const yDomainEnd = 1 - (row - 1) / numRows - yGap;
                                 layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: config.xTicksVisible };
