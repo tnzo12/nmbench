@@ -764,7 +764,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                             const annotations = [];
 
                             groups.forEach(function (group, i) {
-                                const filteredGroupData = currentData.filter(row => row[config.group] === group);
+                                const filteredGroupData = currentData.filter(row => row[config.group] == group);
                                 config.y.forEach((yAxis, j) => {
                                     const trace = {
                                         x: filteredGroupData.map(row => row[config.x]),
