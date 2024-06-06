@@ -72,7 +72,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -98,7 +99,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -124,7 +126,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -192,7 +195,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                     value: defaultCommandSyntax
                 }).then(input => {
                     if (input) {
-                        const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                        const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                        const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                         terminal.sendText(`${input}`);
                         terminal.show();
                     }
@@ -232,7 +236,8 @@ export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeIt
         if (input) {
             const [nonmemPath] = input.split(' ', 1);
             context.globalState.update('nonmemPath', nonmemPath);
-            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
             terminal.sendText(input);
             terminal.show();
         }
@@ -288,7 +293,8 @@ export function showRScriptCommand(context: vscode.ExtensionContext, nodes: (vsc
                 const tempScriptPath = path.join(workingDir, `temp_${path.basename(scriptPath)}`);
                 fs.writeFileSync(tempScriptPath, scriptContent);
 
-                const terminal = vscode.window.createTerminal({ cwd: workingDir });
+                const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                 terminal.sendText(`Rscript "${tempScriptPath}"`);
                 terminal.show();
 

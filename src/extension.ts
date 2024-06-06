@@ -601,11 +601,10 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>NM Table Plot</title>
             <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
             <style>
                 body { margin: 0; padding: 0; }
-                #plot { width: 100vw; height: 90vh; background: transparent; }
+                #plot { width: 100vw; height: 100vh; background: transparent; }
                 .controls { 
                     position: absolute; 
                     top: 10px; 
@@ -628,19 +627,21 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
         </head>
         <body>
             <div class="controls" id="controls">
-                <label for="groupSelect">Grouping Variable:</label>
-                <select id="groupSelect">${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}</select>
-                <label for="groupValues">Group Values:</label>
-                <select id="groupValues" multiple></select>
                 <label for="xSelect">X-axis:</label>
                 <select id="xSelect">${columns.map(col => `<option value="${col}" ${col === "TIME" ? "selected" : ""}>${col}</option>`).join('')}</select>
                 <label for="ySelect">Y-axis:</label>
                 <select id="ySelect" multiple>${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <label for="groupSelect">Grouping Variable:</label>
+                <select id="groupSelect">${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <label for="groupValues">Group Values:</label>
+                <select id="groupValues" multiple></select>
                 <button id="updatePlot">Update Plot</button>
                 <button id="addYXLine">Add y=x Line</button>
                 <button id="toggleSubplot">Toggle Subplot</button>
-                <button id="toggleXTicks">Toggle X Ticks</button>
-                <button id="toggleYTicks">Toggle Y Ticks</button>
+                <div class="button-row">
+                  <button id="toggleXTicks">X Ticks</button>
+                  <button id="toggleYTicks">Y Ticks</button>
+                </div>
                 <button id="clearPlot">Clear Plot</button>
             </div>
             <div id="plot"></div>
@@ -754,11 +755,13 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
 
                         if (config.subplotMode) {
                             const plotWidth = document.getElementById("plot").clientWidth;
-                            let numCols = Math.floor(plotWidth / 250);
-                            if (numCols < 1) numCols = 1;
+                            const numCols = Math.max(1, Math.floor(plotWidth / 250));
                             const numRows = Math.ceil(groups.length / numCols);
-                            layout.grid = { rows: numRows, columns: numCols, pattern: "independent" };
 
+                            // Adjust numCols if there are fewer subplots than columns
+                            const adjustedNumCols = groups.length < numCols ? groups.length : numCols;
+
+                            layout.grid = { rows: numRows, columns: adjustedNumCols, pattern: "independent" };
                             const xGap = 0.02;
                             const yGap = 0.02;
                             const annotations = [];
