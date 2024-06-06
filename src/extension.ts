@@ -605,7 +605,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
             <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
             <style>
                 body { margin: 0; padding: 0; }
-                #plot { width: 100vw; height: 100vh; background: transparent; }
+                #plot { width: 100vw; height: 90vh; background: transparent; }
                 .controls { 
                     position: absolute; 
                     top: 10px; 
@@ -621,21 +621,26 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                     gap: 5px; 
                     color: ${controlTextColor}; 
                 }
-                .controls label, .controls select, .controls button { font-size: 0.8em; }
+                .controls label, .controls select, .controls button, .controls input { font-size: 0.8em; }
                 .controls button { margin-top: 5px; }
+                .controls input[type="number"] { width: 50px; }
             </style>
         </head>
         <body>
             <div class="controls" id="controls">
-                <label for="xSelect">X-axis:</label>
-                <select id="xSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
-                <label for="ySelect">Y-axis:</label>
-                <select id="ySelect" multiple>${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
                 <label for="groupSelect">Grouping Variable:</label>
-                <select id="groupSelect">${columns.map(col => `<option value="${col}">${col}</option>`).join('')}</select>
+                <select id="groupSelect">${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <label for="groupValues">Group Values:</label>
+                <select id="groupValues" multiple></select>
+                <label for="xSelect">X-axis:</label>
+                <select id="xSelect">${columns.map(col => `<option value="${col}" ${col === "TIME" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <label for="ySelect">Y-axis:</label>
+                <select id="ySelect" multiple>${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
                 <button id="updatePlot">Update Plot</button>
                 <button id="addYXLine">Add y=x Line</button>
                 <button id="toggleSubplot">Toggle Subplot</button>
+                <button id="toggleXTicks">Toggle X Ticks</button>
+                <button id="toggleYTicks">Toggle Y Ticks</button>
                 <button id="clearPlot">Clear Plot</button>
             </div>
             <div id="plot"></div>
@@ -643,11 +648,14 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                 const vscode = acquireVsCodeApi();
                 let yxLineAdded = false;
                 let subplotMode = true;
+                let xTicksVisible = true;
+                let yTicksVisible = true;
                 const colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
 
                 const controls = document.getElementById("controls");
                 let isDragging = false;
                 let offsetX, offsetY;
+                let currentData = ${JSON.stringify(data)};
 
                 controls.addEventListener("mousedown", (e) => {
                     isDragging = true;
@@ -666,6 +674,10 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                     isDragging = false;
                 });
 
+                document.getElementById("groupSelect").addEventListener("change", function () {
+                    updateGroupValues();
+                });
+
                 document.getElementById("updatePlot").addEventListener("click", function () {
                     updatePlot();
                 });
@@ -680,27 +692,60 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                     updatePlot();
                 });
 
+                document.getElementById("toggleXTicks").addEventListener("click", function () {
+                    xTicksVisible = !xTicksVisible;
+                    updatePlot();
+                });
+
+                document.getElementById("toggleYTicks").addEventListener("click", function () {
+                    yTicksVisible = !yTicksVisible;
+                    updatePlot();
+                });
+
                 document.getElementById("clearPlot").addEventListener("click", function () {
                     Plotly.purge("plot");
                 });
+
+                function updateGroupValues() {
+                    const group = document.getElementById("groupSelect").value;
+                    const uniqueValues = Array.from(new Set(currentData.map(row => row[group])));
+                    const groupValuesSelect = document.getElementById("groupValues");
+                    groupValuesSelect.innerHTML = uniqueValues.map(val => \`<option value="\${val}">\${val}</option>\`).join('');
+                }
 
                 function updatePlot() {
                     const x = document.getElementById("xSelect").value;
                     const yOptions = Array.from(document.getElementById("ySelect").selectedOptions).map(option => option.value);
                     const group = document.getElementById("groupSelect").value;
-                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: yOptions, group: group, addYXLine: yxLineAdded, subplotMode: subplotMode } });
+                    const groupValues = Array.from(document.getElementById("groupValues").selectedOptions).map(option => option.value);
+
+                    // If no group values are selected, select all unique group values
+                    const selectedGroupValues = groupValues.length > 0 ? groupValues : Array.from(new Set(currentData.map(row => row[group])));
+                    const filteredData = currentData.filter(row => selectedGroupValues.includes(row[group]));
+
+                    console.log("X-axis:", x);
+                    console.log("Y-axis:", yOptions);
+                    console.log("Group:", group);
+                    console.log("Selected Group Values:", selectedGroupValues);
+                    console.log("Filtered Data:", filteredData);
+
+                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: yOptions, group: group, groupValues: selectedGroupValues, addYXLine: yxLineAdded, subplotMode: subplotMode, xTicksVisible: xTicksVisible, yTicksVisible: yTicksVisible }, data: filteredData });
                 }
 
                 window.addEventListener("message", function (event) {
                     const message = event.data;
                     if (message.command === "plotData") {
-                        const data = message.data;
+                        currentData = message.data;
                         const config = message.config;
-                        const groups = Array.from(new Set(data.map(row => row[config.group])));
+
+                        console.log("Received Data:", currentData);
+                        console.log("Plot Config:", config);
+
+                        const groups = config.groupValues.length > 0 ? config.groupValues : Array.from(new Set(currentData.map(row => row[config.group])));
                         const figData = [];
                         const layout = {
                             showlegend: true,
-                            legend: { orientation: "h", y: -0.01 }, // 레전드를 아래로 이동
+                            legend: { orientation: "h", y: -0.01 },
                             margin: { t: 20, b: 20, l: 40, r: 20 },
                             paper_bgcolor: '${backgroundColor}',
                             plot_bgcolor: '${backgroundColor}',
@@ -709,33 +754,33 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
 
                         if (config.subplotMode) {
                             const plotWidth = document.getElementById("plot").clientWidth;
-                            let numCols = Math.floor(plotWidth / 250); // 250px per plot column
-                            if (numCols < 1) numCols = 1; // 최소 1열은 유지
+                            let numCols = Math.floor(plotWidth / 250);
+                            if (numCols < 1) numCols = 1;
                             const numRows = Math.ceil(groups.length / numCols);
                             layout.grid = { rows: numRows, columns: numCols, pattern: "independent" };
 
-                            const xGap = 0.02; // 서브플롯 간 수평 여백 비율
-                            const yGap = 0.02; // 서브플롯 간 수직 여백 비율
+                            const xGap = 0.02;
+                            const yGap = 0.02;
                             const annotations = [];
 
                             groups.forEach(function (group, i) {
-                                const filteredData = data.filter(row => row[config.group] === group);
+                                const filteredGroupData = currentData.filter(row => row[config.group] === group);
                                 config.y.forEach((yAxis, j) => {
                                     const trace = {
-                                        x: filteredData.map(row => row[config.x]),
-                                        y: filteredData.map(row => row[yAxis]),
+                                        x: filteredGroupData.map(row => row[config.x]),
+                                        y: filteredGroupData.map(row => row[yAxis]),
                                         type: "scatter",
                                         mode: "lines+markers",
                                         name: yAxis,
                                         xaxis: "x" + (i + 1),
                                         yaxis: "y" + (i + 1),
                                         marker: { color: colors[j % colors.length] },
-                                        showlegend: i === 0 // 레전드는 첫 번째 그룹에만 표시
+                                        showlegend: i === 0
                                     };
                                     figData.push(trace);
                                     if (config.addYXLine) {
-                                        const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[yAxis])));
-                                        const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[yAxis])));
+                                        const minVal = Math.min(...filteredGroupData.map(row => Math.min(row[config.x], row[yAxis])));
+                                        const maxVal = Math.max(...filteredGroupData.map(row => Math.max(row[config.x], row[yAxis])));
                                         const lineTrace = {
                                             x: [minVal, maxVal],
                                             y: [minVal, maxVal],
@@ -755,10 +800,9 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                 const xDomainEnd = col / numCols - xGap;
                                 const yDomainStart = 1 - row / numRows + yGap;
                                 const yDomainEnd = 1 - (row - 1) / numRows - yGap;
-                                layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: false };
-                                layout["yaxis" + (i + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: false };
+                                layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: config.xTicksVisible };
+                                layout["yaxis" + (i + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: config.yTicksVisible };
 
-                                // Add title for each subplot
                                 annotations.push({
                                     x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
                                     y: yDomainEnd,
@@ -771,7 +815,6 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                 });
                             });
 
-                            // Add common x and y axis titles
                             layout.annotations = annotations.concat([
                                 {
                                     text: config.x,
@@ -796,23 +839,22 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                 }
                             ]);
                         } else {
-                            // 하나의 플롯에 모든 그룹을 표시하는 모드
                             config.y.forEach((yAxis, j) => {
                                 groups.forEach(function (group, i) {
-                                    const filteredData = data.filter(row => row[config.group] === group);
+                                    const filteredGroupData = currentData.filter(row => row[config.group] === group);
                                     const trace = {
-                                        x: filteredData.map(row => row[config.x]),
-                                        y: filteredData.map(row => row[yAxis]),
+                                        x: filteredGroupData.map(row => row[config.x]),
+                                        y: filteredGroupData.map(row => row[yAxis]),
                                         type: "scatter",
                                         mode: "lines+markers",
                                         name: yAxis,
                                         marker: { color: colors[j % colors.length] },
-                                        showlegend: i === 0 // 레전드는 첫 번째 그룹에만 표시
+                                        showlegend: i === 0
                                     };
                                     figData.push(trace);
                                     if (config.addYXLine) {
-                                        const minVal = Math.min(...filteredData.map(row => Math.min(row[config.x], row[yAxis])));
-                                        const maxVal = Math.max(...filteredData.map(row => Math.max(row[config.x], row[yAxis])));
+                                        const minVal = Math.min(...filteredGroupData.map(row => Math.min(row[config.x], row[yAxis])));
+                                        const maxVal = Math.max(...filteredGroupData.map(row => Math.max(row[config.x], row[yAxis])));
                                         const lineTrace = {
                                             x: [minVal, maxVal],
                                             y: [minVal, maxVal],
@@ -826,19 +868,22 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                                 });
                             });
 
-                            // Add common x and y axis titles
-                            layout.xaxis = { title: config.x, showticklabels: true };
-                            layout.yaxis = { title: config.y.join(", "), showticklabels: true };
+                            layout.xaxis = { title: config.x, showticklabels: config.xTicksVisible };
+                            layout.yaxis = { title: config.y.join(", "), showticklabels: config.yTicksVisible };
                         }
 
                         Plotly.newPlot("plot", figData, layout, { responsive: true });
+
+                        updateGroupValues();
                     }
                 });
+
+                updateGroupValues();
+                updatePlot();
             </script>
         </body>
         </html>
     `;
 }
-
 
 export function deactivate() {}
