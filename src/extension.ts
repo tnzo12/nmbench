@@ -233,8 +233,7 @@ export function activate(context: vscode.ExtensionContext) {
             const lstFilePaths = selectedNodes.map(node => node.uri.fsPath.replace(/\.[^.]+$/, '.lst'));
 
             const options = {
-                cwd: path.dirname(selectedNodes[0].uri.fsPath),
-                shell: os.platform() === 'win32' ? 'cmd.exe' : undefined // cmd.exe for Windows
+                cwd: path.dirname(selectedNodes[0].uri.fsPath)
             };
 
             lstFilePaths.forEach(lstFilePath => {
