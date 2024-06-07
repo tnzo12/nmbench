@@ -5,9 +5,9 @@
 nmbench provides following features:
 
 Viewer functions (as a primary side bar)
-1. *Model fit summary* - run 'sumo' command in PsN for selected model
+1. *Model fit summary* - run 'sumo' command in PsN to summarize run result
 2. *Run PsN tool*
-3. *Show related files* - Create a quick pick for the files with identical name
+3. *Show related files* - Create a quick pick menu for the files with identical name
 4. *Run R script*
 5. *Show R scripts*
 
@@ -15,7 +15,7 @@ Editor functions (as a button top-right)
 1. *Run nmfe* (command for NONMEM only)
 2. *Run PsN tool*
 3. *Run R script*
-4. Visualization
+4. Visualization - heatmap, data inspector 
 
 More will be added in demand...
 
@@ -43,6 +43,11 @@ The extension is made in follwing system settings:
 Optional:
 * VS Code extension - `NMTRAN` (by Viktor Rognås)
 
+** :warning: Be sure to add PATHs in system environment variable for the extension to call the R/PsN functions**
+
+* For MacOS, it is recommanded to use homebrew for R
+* For Windows, in order to use `Run R script` function, environment variable should be added in PATH. For example, "C:\Program Files\R\R-4.4.0\bin" must be in system PATH
+
 
 ## Extension Settings
 To be added later
@@ -52,6 +57,8 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
+### 0.0.3
+Minor fix: Command prompt as terminal in windows
 ### 0.0.2
 Data visualization, minor updates
 ### 0.0.1

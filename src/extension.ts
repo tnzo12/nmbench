@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as util from 'util';
 import * as childProcess from 'child_process';
 import { showModFileContextMenu, showModFileContextMenuNONMEM, showRScriptCommand } from './commands';
+import * as os from 'os';
 
 const readFile = util.promisify(fs.readFile);
 
@@ -232,7 +233,8 @@ export function activate(context: vscode.ExtensionContext) {
             const lstFilePaths = selectedNodes.map(node => node.uri.fsPath.replace(/\.[^.]+$/, '.lst'));
 
             const options = {
-                cwd: path.dirname(selectedNodes[0].uri.fsPath)
+                cwd: path.dirname(selectedNodes[0].uri.fsPath),
+                shell: os.platform() === 'win32' ? 'cmd.exe' : undefined // cmd.exe for Windows
             };
 
             lstFilePaths.forEach(lstFilePath => {
