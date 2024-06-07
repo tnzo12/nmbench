@@ -6,7 +6,7 @@
     "categories": ["Other"],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "engines": {
         "vscode": "^1.89.0"
     },
@@ -16,7 +16,11 @@
         "commands": [
             {
                 "command": "extension.readNmTableAndPlot",
-                "title": "Table and Plot"
+                "title": "Inspect data",
+                "icon": {
+                    "dark": "./resources/dark/inspect.svg",
+                    "light": "./resources/light/inspect.svg"
+                }
             },
             {
                 "command": "extension.manageRScriptCommand",
@@ -93,6 +97,10 @@
                 "key": "alt+D"
             },
             {
+                "command": "extension.showLinkedFiles",
+                "key": "cmd+alt+R"
+            },
+            {
                 "command": "extension.showModFileContextMenuFromTreeView",
                 "key": "alt+E"
             },
@@ -147,7 +155,7 @@
             "editor/title": [
                 {
                     "command": "extension.readNmTableAndPlot",
-                    
+                    "when": "resourceFilename =~ /(tab|table)/gi",
                     "group": "navigation"
                 },
                 {
@@ -167,7 +175,7 @@
                 },
                 {
                     "command": "extension.showHeatmap",
-                    "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor || resourceExtname == .ext",
+                    "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor",
                     "group": "navigation"
                 }
             ]

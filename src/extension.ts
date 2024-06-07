@@ -297,8 +297,25 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('extension.showLinkedFiles', async (node: ModFile) => {
             if (!node) {
-                vscode.window.showErrorMessage('No file selected.');
-                return;
+                const editor = vscode.window.activeTextEditor;
+                if (!editor) {
+                    vscode.window.showErrorMessage('No file selected.');
+                    return;
+                }
+                
+                const document = editor.document;
+                if (!document) {
+                    vscode.window.showErrorMessage('No file selected.');
+                    return;
+                }
+                
+                const uri = document.uri;
+                if (!uri.fsPath.match(/\.(mod|ctl)$/)) {
+                    vscode.window.showErrorMessage('The active file is not a MOD or CTL file.');
+                    return;
+                }
+                
+                node = new ModFile(uri);
             }
         
             const dir = path.dirname(node.uri.fsPath);
@@ -630,11 +647,11 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                 <label for="xSelect">X-axis:</label>
                 <select id="xSelect">${columns.map(col => `<option value="${col}" ${col === "TIME" ? "selected" : ""}>${col}</option>`).join('')}</select>
                 <label for="ySelect">Y-axis:</label>
-                <select id="ySelect" multiple>${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <select id="ySelect" multiple size="6">${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
                 <label for="groupSelect">Grouping Variable:</label>
                 <select id="groupSelect">${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}</select>
                 <label for="groupValues">Group Values:</label>
-                <select id="groupValues" multiple></select>
+                <select id="groupValues" multiple size="6"></select>
                 <button id="updatePlot">Update Plot</button>
                 <button id="addYXLine">Add y=x Line</button>
                 <button id="toggleSubplot">Toggle Subplot</button>
@@ -706,6 +723,10 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
                 document.getElementById("clearPlot").addEventListener("click", function () {
                     Plotly.purge("plot");
                 });
+
+                  window.onresize = function() {
+                    updatePlot(); // update when window size changes
+                };
 
                 function updateGroupValues() {
                     const group = document.getElementById("groupSelect").value;

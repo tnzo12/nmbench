@@ -15,11 +15,21 @@ Editor functions (as a button top-right)
 1. *Run nmfe* (command for NONMEM only)
 2. *Run PsN tool*
 3. *Run R script*
+4. Visualization
 
 More will be added in demand...
 
 > Demo
 > ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo.gif)
+
+Visualization
+Button will appear on certain file types
+Heatmap viewer for matrix type data (.cov, .cor, .coi)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_mat.png)
+
+Data inpector for table dataset (File name conatining ~tab, ~table)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_plot.png)
+
 
 ## Requirements
 The extension is made in follwing system settings:
@@ -42,5 +52,7 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.1.0
+### 0.0.2
+Data visualization, minor updates
+### 0.0.1
 Initial release
