@@ -90,7 +90,8 @@ function showModFileContextMenu(nodes) {
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -115,7 +116,8 @@ function showModFileContextMenu(nodes) {
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -140,7 +142,8 @@ function showModFileContextMenu(nodes) {
                         value: defaultCommandSyntax
                     }).then(input => {
                         if (input) {
-                            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                             terminal.sendText(`${input}`);
                             terminal.show();
                         }
@@ -207,7 +210,8 @@ function showModFileContextMenu(nodes) {
                     value: defaultCommandSyntax
                 }).then(input => {
                     if (input) {
-                        const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+                        const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                        const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                         terminal.sendText(`${input}`);
                         terminal.show();
                     }
@@ -245,7 +249,8 @@ function showModFileContextMenuNONMEM(nodes, context) {
         if (input) {
             const [nonmemPath] = input.split(' ', 1);
             context.globalState.update('nonmemPath', nonmemPath);
-            const terminal = vscode.window.createTerminal({ cwd: path.dirname(uris[0].fsPath) });
+            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
             terminal.sendText(input);
             terminal.show();
         }
@@ -293,7 +298,8 @@ function showRScriptCommand(context, nodes) {
                 scriptContent = scriptContent.replace(/nmbench_wkdir <- # MODEL_FOLDER_IN/g, `nmbench_wkdir <- "${workingDir}"`);
                 const tempScriptPath = path.join(workingDir, `temp_${path.basename(scriptPath)}`);
                 fs.writeFileSync(tempScriptPath, scriptContent);
-                const terminal = vscode.window.createTerminal({ cwd: workingDir });
+                const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
+                const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath) });
                 terminal.sendText(`Rscript "${tempScriptPath}"`);
                 terminal.show();
                 setTimeout(() => {
