@@ -6,7 +6,7 @@
     "categories": ["Other"],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "engines": {
         "vscode": "^1.89.0"
     },
