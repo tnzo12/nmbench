@@ -57,8 +57,10 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
+### 0.0.4
+Minor fix: Command prompt settings in Windows
 ### 0.0.3
-Minor fix: Command prompt as terminal in windows
+Minor fix: Command prompt as terminal in Windows
 ### 0.0.2
 Data visualization, minor updates
 ### 0.0.1
