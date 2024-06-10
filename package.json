@@ -23,6 +23,10 @@
                 }
             },
             {
+                "command": "extension.showHistogram",
+                "title": "Histogram"
+            },
+            {
                 "command": "extension.manageRScriptCommand",
                 "title": "Show R Scripts"
             },
@@ -155,6 +159,11 @@
             "editor/title": [
                 {
                     "command": "extension.readNmTableAndPlot",
+                    "when": "resourceFilename =~ /(tab|table)/gi",
+                    "group": "navigation"
+                },
+                {
+                    "command": "extension.showHistogram",
                     "when": "resourceFilename =~ /(tab|table)/gi",
                     "group": "navigation"
                 },

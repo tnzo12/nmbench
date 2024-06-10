@@ -449,6 +449,27 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    vscode.commands.registerCommand('extension.showHistogram', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+            const document = editor.document;
+            const fileName = document.fileName;
+    
+            if (fileName.match(/sdtab\d*|patab\d*/)) {
+                const data = await readNmTable(fileName);
+                const panel = vscode.window.createWebviewPanel(
+                    'histogramPlot',
+                    'Histogram Plot',
+                    vscode.ViewColumn.One,
+                    { enableScripts: true }
+                );
+    
+                // Get the current theme
+                const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+                panel.webview.html = getWebviewContent_hist(data, theme);
+            }
+        }
+    });
 }
 
 function getWebviewContent(output: string): string {
@@ -901,5 +922,382 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
         </html>
     `;
 }
+
+function getWebviewContent_hist(data: any[], theme: string) {
+    const columns = Object.keys(data[0]);
+
+    // Determine colors based on the theme
+    const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
+    const axisColor = isDarkTheme ? 'white' : 'black';
+    const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
+    const controlTextColor = isDarkTheme ? 'white' : 'black';
+    const annotationColor = isDarkTheme ? 'white' : 'black';
+
+    // Generate column options HTML
+    const columnOptions = columns.map(col => `<option value="${col}">${col}</option>`).join('');
+
+    // Generate HTML content
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <style>
+                body { margin: 0; padding: 0; }
+                #plot { width: 100vw; height: 100vh; background: transparent; }
+                .controls { 
+                    position: absolute; 
+                    top: 10px; 
+                    left: 10px; 
+                    z-index: 100; 
+                    background: rgba(255, 255, 255, 0.8); 
+                    padding: 10px; 
+                    border-radius: 5px; 
+                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); 
+                    cursor: move; 
+                    display: flex; 
+                    flex-direction: column; 
+                    gap: 5px; 
+                    color: ${controlTextColor}; 
+                }
+                .controls label, .controls select, .controls button, .controls input { font-size: 0.8em; }
+                .controls button { margin-top: 5px; }
+                .controls input[type="number"] { width: 50px; }
+            </style>
+        </head>
+        <body>
+            <div class="controls" id="controls">
+                <label for="columnSelect">Columns:</label>
+                <select id="columnSelect" multiple size="6">${columnOptions}</select>
+                <label for="groupSelect">Group by:</label>
+                <select id="groupSelect">
+                    <option value="">None</option>${columnOptions}
+                </select>
+                <button id="updatePlot">Update Plot</button>
+                <button id="togglePlot">Toggle Plot</button>
+            </div>
+            <div id="plot"></div>
+            <script>
+                const vscode = acquireVsCodeApi();
+                let currentData = ${JSON.stringify(data)};
+                let plotType = "histogram"; // Initial plot type
+
+                const controls = document.getElementById("controls");
+                const columnSelect = document.getElementById("columnSelect");
+                const groupSelect = document.getElementById("groupSelect");
+                let isDragging = false;
+                let offsetX, offsetY;
+
+                // Initialize column select with all options selected
+                Array.from(columnSelect.options).forEach(option => option.selected = true);
+
+                controls.addEventListener("mousedown", (e) => {
+                    isDragging = true;
+                    offsetX = e.clientX - controls.offsetLeft;
+                    offsetY = e.clientY - controls.offsetTop;
+                });
+
+                document.addEventListener("mousemove", (e) => {
+                    if (isDragging) {
+                        controls.style.left = (e.clientX - offsetX) + "px";
+                        controls.style.top = (e.clientY - offsetY) + "px";
+                    }
+                });
+
+                document.addEventListener("mouseup", () => {
+                    isDragging = false;
+                });
+
+                document.getElementById("updatePlot").addEventListener("click", function () {
+                    updatePlot();
+                });
+
+                document.getElementById("togglePlot").addEventListener("click", function () {
+                    plotType = plotType === "histogram" ? "splom" : "histogram";
+                    updatePlot();
+                });
+
+                window.onresize = function() {
+                    updatePlot(); // update when window size changes
+                };
+
+                function updatePlot() {
+                    const selectedColumns = Array.from(document.getElementById("columnSelect").selectedOptions).map(option => option.value);
+                    const groupByColumn = document.getElementById("groupSelect").value;
+
+                    // If no columns are selected, select all columns
+                    const columnsToPlot = selectedColumns.length > 0 ? selectedColumns : ${JSON.stringify(columns)};
+
+                    if (plotType === "histogram") {
+                        plotHistogram(columnsToPlot, groupByColumn);
+                    } else {
+                        plotCustomSplom(columnsToPlot, groupByColumn);
+                    }
+                }
+
+                function plotHistogram(columnsToPlot, groupByColumn) {
+                    let plotData = [];
+                    let showLegend = false;
+                    if (groupByColumn) {
+                        const uniqueGroups = [...new Set(currentData.map(row => row[groupByColumn]))];
+                        const colors = Plotly.d3.scale.category10().range();
+                        columnsToPlot.forEach((column, index) => {
+                            uniqueGroups.forEach((group, groupIndex) => {
+                                plotData.push({
+                                    x: currentData.filter(row => row[groupByColumn] === group).map(row => row[column]),
+                                    type: 'histogram',
+                                    name: column + ' (' + group + ')',
+                                    marker: { color: colors[groupIndex % colors.length] },
+                                    xaxis: 'x' + (index + 1),
+                                    yaxis: 'y' + (index + 1),
+                                    autobinx: false,
+                                    histnorm: "count",
+                                    nbinsx: Math.ceil(currentData.length * 0.25) // Coarser binning
+                                });
+                            });
+                        });
+                        showLegend = true;
+                    } else {
+                        plotData = columnsToPlot.map((column, index) => {
+                            return {
+                                x: currentData.map(row => row[column]),
+                                type: 'histogram',
+                                name: column,
+                                marker: { color: "rgba(255, 102, 102, 0.8)" }, // Semi-transparent red color
+                                xaxis: 'x' + (index + 1),
+                                yaxis: 'y' + (index + 1),
+                                autobinx: false,
+                                histnorm: "count",
+                                nbinsx: Math.ceil(currentData.length * 0.25) // Coarser binning
+                            };
+                        });
+                    }
+
+                    const layout = {
+                        showlegend: showLegend, // Show legend if grouping is applied
+                        paper_bgcolor: '${backgroundColor}',
+                        plot_bgcolor: '${backgroundColor}',
+                        font: { color: '${axisColor}' },
+                        margin: { t: 20, b: 20, l: 40, r: 20 }, // Reduced margins
+                        grid: { rows: Math.ceil(columnsToPlot.length / Math.max(1, Math.floor(document.getElementById("plot").clientWidth / 250))), columns: Math.max(1, Math.floor(document.getElementById("plot").clientWidth / 250)), pattern: "independent" }
+                    };
+
+                    const plotWidth = document.getElementById("plot").clientWidth;
+                    const numCols = Math.max(1, Math.floor(plotWidth / 250));
+                    const numRows = Math.ceil(columnsToPlot.length / numCols);
+                    const adjustedNumCols = columnsToPlot.length < numCols ? columnsToPlot.length : numCols;
+
+                    const xGap = 0.02;
+                    const yGap = 0.025;
+                    const annotations = [];
+
+                    columnsToPlot.forEach((column, index) => {
+                        const row = Math.floor(index / adjustedNumCols) + 1;
+                        const col = (index % adjustedNumCols) + 1;
+                        const xDomainStart = (col - 1) / adjustedNumCols + xGap;
+                        const xDomainEnd = col / adjustedNumCols - xGap;
+                        const yDomainStart = 1 - row / numRows + yGap;
+                        const yDomainEnd = 1 - (row - 1) / numRows - yGap;
+                        layout["xaxis" + (index + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: true, matches: null, tickangle: 90 };
+                        layout["yaxis" + (index + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: true, autorange: true, matches: null, tickangle: 0 };
+
+                        annotations.push({
+                            x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
+                            y: yDomainEnd,
+                            xref: "paper",
+                            yref: "paper",
+                            text: column,
+                            showarrow: false,
+                            xanchor: "center",
+                            yanchor: "bottom"
+                        });
+                    });
+
+                    layout.annotations = annotations.concat([
+                        {
+                            text: "Count",
+                            x: -0.05,
+                            xref: "paper",
+                            y: 0.5,
+                            yref: "paper",
+                            showarrow: false,
+                            xanchor: "center",
+                            yanchor: "middle",
+                            textangle: -90
+                        }
+                    ]);
+
+                    // Clear any existing plots before plotting new data
+                    Plotly.purge('plot');
+
+                    // Create new plot with updated data
+                    Plotly.newPlot('plot', plotData, layout, { responsive: true });
+                }
+
+                function plotCustomSplom(columnsToPlot, groupByColumn) {
+                    const plotData = [];
+                    const layout = {
+                        showlegend: !!groupByColumn, // Show legend if grouping is applied
+                        paper_bgcolor: '${backgroundColor}',
+                        plot_bgcolor: '${backgroundColor}',
+                        font: { color: '${axisColor}' },
+                        margin: { t: 20, b: 20, l: 40, r: 20 },
+                        grid: {
+                            rows: columnsToPlot.length,
+                            columns: columnsToPlot.length,
+                            pattern: 'independent'
+                        }
+                    };
+
+                    const annotations = [];
+                    const uniqueGroups = groupByColumn ? [...new Set(currentData.map(row => row[groupByColumn]))] : [''];
+                    const colors = Plotly.d3.scale.category10().range();
+
+                    columnsToPlot.forEach((xCol, xIndex) => {
+                        columnsToPlot.forEach((yCol, yIndex) => {
+                            const index = xIndex * columnsToPlot.length + yIndex + 1;
+                            if (xIndex === yIndex) {
+                                // Diagonal (histogram with label)
+                                uniqueGroups.forEach((group, groupIndex) => {
+                                    plotData.push({
+                                        x: currentData.filter(row => groupByColumn ? row[groupByColumn] === group : true).map(row => row[xCol]),
+                                        type: 'histogram',
+                                        marker: { color: colors[groupIndex % colors.length] },
+                                        xaxis: 'x' + index,
+                                        yaxis: 'y' + index,
+                                        autobinx: true
+                                    });
+                                });
+                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false, matches: null };
+                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false, matches: null };
+
+                                annotations.push({
+                                    x: (xIndex + 0.5) / columnsToPlot.length,
+                                    y: 1 - (yIndex + 0.5) / columnsToPlot.length,
+                                    xref: 'paper',
+                                    yref: 'paper',
+                                    text: xCol,
+                                    showarrow: false,
+                                    font: { color: '${annotationColor}', size: 12 },
+                                    xanchor: 'center',
+                                    yanchor: 'middle'
+                                });
+
+                                // Add tick labels to the diagonal cells
+                                if (xIndex === columnsToPlot.length - 1) {
+                                    layout['xaxis' + index].showticklabels = true;
+                                    layout['xaxis' + index].tickangle = 90;
+                                }
+                                if (yIndex === 0) {
+                                    layout['yaxis' + index].showticklabels = true;
+                                    layout['yaxis' + index].tickangle = 0;
+                                }
+                            } else if (xIndex < yIndex) {
+                                // Upper triangle (scatter plot with regression line)
+                                const xData = currentData.map(row => row[xCol]);
+                                const yData = currentData.map(row => row[yCol]);
+                                const regression = linearRegression(xData, yData);
+
+                                uniqueGroups.forEach((group, groupIndex) => {
+                                    plotData.push({
+                                        x: currentData.filter(row => groupByColumn ? row[groupByColumn] === group : true).map(row => row[xCol]),
+                                        y: currentData.filter(row => groupByColumn ? row[groupByColumn] === group : true).map(row => row[yCol]),
+                                        mode: 'markers',
+                                        type: 'scatter',
+                                        marker: { color: colors[groupIndex % colors.length] },
+                                        xaxis: 'x' + index,
+                                        yaxis: 'y' + index
+                                    });
+                                });
+
+                                plotData.push({
+                                    x: [Math.min(...xData), Math.max(...xData)],
+                                    y: [regression.slope * Math.min(...xData) + regression.intercept, regression.slope * Math.max(...xData) + regression.intercept],
+                                    mode: 'lines',
+                                    type: 'scatter',
+                                    line: { color: 'rgba(0, 0, 255, 0.8)', width: 2 }, // Prominent regression line
+                                    xaxis: 'x' + index,
+                                    yaxis: 'y' + index,
+                                    showlegend: false
+                                });
+
+                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
+                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
+                            } else {
+                                // Lower triangle (text with Pearson correlation coefficient)
+                                const xData = currentData.map(row => row[xCol]);
+                                const yData = currentData.map(row => row[yCol]);
+                                const correlation = pearsonCorrelation(xData, yData).toFixed(2);
+                                let significance = '';
+                                if (Math.abs(correlation) > 0.9) {
+                                    significance = '***';
+                                } else if (Math.abs(correlation) > 0.7) {
+                                    significance = '**';
+                                } else if (Math.abs(correlation) > 0.5) {
+                                    significance = '*';
+                                }
+                                annotations.push({
+                                    x: (xIndex + 0.5) / columnsToPlot.length,
+                                    y: 1 - (yIndex + 0.5) / columnsToPlot.length,
+                                    xref: 'paper',
+                                    yref: 'paper',
+                                    text: 'r: ' + correlation + significance,
+                                    showarrow: false,
+                                    font: { color: '${annotationColor}', size: 12 },
+                                    xanchor: 'center',
+                                    yanchor: 'middle'
+                                });
+
+                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
+                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
+                            }
+                        });
+                    });
+
+                    layout.annotations = annotations;
+
+                    // Clear any existing plots before plotting new data
+                    Plotly.purge('plot');
+
+                    // Create new plot with updated data
+                    Plotly.newPlot('plot', plotData, layout, { responsive: true });
+                }
+
+                function pearsonCorrelation(x, y) {
+                    const n = x.length;
+                    const sumX = x.reduce((a, b) => a + b, 0);
+                    const sumY = y.reduce((a, b) => a + b, 0);
+                    const sumXY = x.reduce((acc, xi, i) => acc + xi * y[i], 0);
+                    const sumXX = x.reduce((acc, xi) => acc + xi * xi, 0);
+                    const sumYY = y.reduce((acc, yi) => acc + yi * yi, 0);
+
+                    const numerator = n * sumXY - sumX * sumY;
+                    const denominator = Math.sqrt((n * sumXX - sumX * sumX) * (n * sumYY - sumY * sumY));
+                    return numerator / denominator;
+                }
+
+                function linearRegression(x, y) {
+                    const n = x.length;
+                    const sumX = x.reduce((a, b) => a + b, 0);
+                    const sumY = y.reduce((a, b) => a + b, 0);
+                    const sumXY = x.reduce((acc, xi, i) => acc + xi * y[i], 0);
+                    const sumXX = x.reduce((acc, xi) => acc + xi * xi, 0);
+
+                    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+                    const intercept = (sumY - slope * sumX) / n;
+
+                    return { slope, intercept };
+                }
+
+                // Initial plot update
+                updatePlot();
+            </script>
+        </body>
+        </html>
+    `;
+}
+
 
 export function deactivate() {}
