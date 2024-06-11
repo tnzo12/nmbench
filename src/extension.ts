@@ -954,7 +954,7 @@ function getWebviewContent_hist(data: any[], theme: string) {
                     z-index: 100; 
                     background: rgba(255, 255, 255, 0.8); 
                     padding: 10px; 
-                    border-radius: 5px; 
+                    border-radius: 5px;
                     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); 
                     cursor: move; 
                     display: flex; 
@@ -1077,6 +1077,10 @@ function getWebviewContent_hist(data: any[], theme: string) {
 
                     const layout = {
                         showlegend: showLegend, // Show legend if grouping is applied
+                        legend: {
+                            orientation: 'h',
+                            y: -0.2 // Position the legend below the plot
+                        },
                         paper_bgcolor: '${backgroundColor}',
                         plot_bgcolor: '${backgroundColor}',
                         font: { color: '${axisColor}' },
@@ -1139,7 +1143,7 @@ function getWebviewContent_hist(data: any[], theme: string) {
                 function plotCustomSplom(columnsToPlot, groupByColumn) {
                     const plotData = [];
                     const layout = {
-                        showlegend: !!groupByColumn, // Show legend if grouping is applied
+                        showlegend: false, // Hide legend
                         paper_bgcolor: '${backgroundColor}',
                         plot_bgcolor: '${backgroundColor}',
                         font: { color: '${axisColor}' },
@@ -1208,7 +1212,8 @@ function getWebviewContent_hist(data: any[], theme: string) {
                                         type: 'scatter',
                                         marker: { color: colors[groupIndex % colors.length] },
                                         xaxis: 'x' + index,
-                                        yaxis: 'y' + index
+                                        yaxis: 'y' + index,
+                                        showlegend: false
                                     });
                                 });
 
