@@ -56,7 +56,8 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.0.4 - 0.0.5
+### 0.0.4 - 0.0.6
+Fixed Rscript working directory problem
 Renewed heatmap function to use plotly
 Minor fix: Command prompt settings in Windows
 ### 0.0.3
