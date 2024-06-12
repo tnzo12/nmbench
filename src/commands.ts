@@ -285,10 +285,17 @@ export function showRScriptCommand(context: vscode.ExtensionContext, nodes: (vsc
             description: path.join(scriptsFolder, file)
         }));
 
+        const toForwardSlashPath = (inputPath: string): string => {
+            return inputPath.replace(/\\/g, '/');
+        };
+        
+
         vscode.window.showQuickPick(scriptFiles, { placeHolder: 'Select an R script to execute' }).then(selected => {
             if (selected) {
                 const firstUri = uris[0];
-                const workingDir = path.dirname(firstUri.fsPath);
+                let workingDir = path.dirname(firstUri.fsPath);
+                workingDir = toForwardSlashPath(workingDir); // forward slash to the path
+
                 const baseFileName = path.basename(firstUri.fsPath);
 
                 const scriptPath = selected.description!;
