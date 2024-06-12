@@ -15,7 +15,7 @@ Editor functions (as a button top-right)
 1. *Run nmfe* (command for NONMEM only)
 2. *Run PsN tool*
 3. *Run R script*
-4. Visualization - heatmap, data inspector 
+4. Visualization - heatmap, line ploting, histograms, scatter plot matrix ... 
 
 More will be added in demand...
 
@@ -40,11 +40,10 @@ The extension is made in follwing system settings:
 * R (v4.4.0)
 * R packages (xpose, xpose4, reshape2, dplyr)
 
+> Be sure to add needed PATHs in system environment variable to call the R/PsN/NONMEM functions
+
 Optional:
 * VS Code extension - `NMTRAN` (by Viktor Rognås)
-
-** :warning: Be sure to add PATHs in system environment variable for the extension to call the R/PsN functions**
-
 * For MacOS, it is recommanded to use homebrew for R
 * For Windows, in order to use `Run R script` function, environment variable should be added in PATH. For example, "C:\Program Files\R\R-4.4.0\bin" must be in system PATH
 
@@ -57,7 +56,8 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.0.4
+### 0.0.4 - 0.0.5
+Renewed heatmap function to use plotly
 Minor fix: Command prompt settings in Windows
 ### 0.0.3
 Minor fix: Command prompt as terminal in Windows

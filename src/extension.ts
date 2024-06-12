@@ -367,27 +367,35 @@ export function activate(context: vscode.ExtensionContext) {
                 });
             });
         }),
-        vscode.commands.registerCommand('extension.showHeatmap', function () {
+        vscode.commands.registerCommand('extension.showHeatmap', async () => {
             const editor = vscode.window.activeTextEditor;
-
             if (editor) {
-                const content = editor.document.getText();
-                const tables = parseTables(content);
-
+                const document = editor.document;
+                const fileName = document.fileName; // 파일 이름 가져오기
+                const baseFileName = path.basename(fileName); // 경로를 제외한 파일 이름
+            
+                const data = await readNmTable_heatmap(fileName);
                 const panel = vscode.window.createWebviewPanel(
-                    'heatmapViewer',
-                    'Heatmap Viewer',
+                    'nmTablePlot',
+                    baseFileName, // 패널 이름을 파일 이름으로 설정
                     vscode.ViewColumn.One,
-                    {
-                        enableScripts: true
-                    }
+                    { enableScripts: true }
                 );
-
-                panel.webview.html = getWebviewContent_heatmap(tables);
-            } else {
-                vscode.window.showErrorMessage('No active editor found. Please open a file first.');
+            
+                // Get the current theme
+                const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+                panel.webview.html = getWebviewContent_heatmap_plotly(data, theme, baseFileName);
+            
+                // Handle messages from the webview
+                panel.webview.onDidReceiveMessage(message => {
+                    if (message.command === "updatePlot") {
+                        panel.webview.postMessage({ command: "plotData", data: data, config: message.config });
+                    }
+                });
             }
         })
+        
+        
     );
 
     treeView.onDidChangeSelection(event => {
@@ -425,7 +433,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const document = editor.document;
                 const fileName = document.fileName;
 
-                if (fileName.match(/sdtab\d*|patab\d*/)) {
+                //if (fileName.match(/sdtab\d*|patab\d*/)) {
                     const data = await readNmTable(fileName);
                     const panel = vscode.window.createWebviewPanel(
                         'nmTablePlot',
@@ -444,7 +452,7 @@ export function activate(context: vscode.ExtensionContext) {
                             panel.webview.postMessage({ command: "plotData", data: data, config: message.config });
                         }
                     });
-                }
+                //}
             }
         })
     );
@@ -455,7 +463,7 @@ export function activate(context: vscode.ExtensionContext) {
             const document = editor.document;
             const fileName = document.fileName;
     
-            if (fileName.match(/sdtab\d*|patab\d*/)) {
+            //if (fileName.match(/sdtab\d*|patab\d*/)) {
                 const data = await readNmTable(fileName);
                 const panel = vscode.window.createWebviewPanel(
                     'histogramPlot',
@@ -467,7 +475,7 @@ export function activate(context: vscode.ExtensionContext) {
                 // Get the current theme
                 const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
                 panel.webview.html = getWebviewContent_hist(data, theme);
-            }
+            //}
         }
     });
 }
@@ -526,82 +534,6 @@ function getWebviewContent(output: string): string {
     `;
 }
 
-function parseTables(content: string) {
-    const tables = content.split(/TABLE\s/).filter((section: string) => section.trim() !== '');
-    return tables.map((table: string) => {
-        const rows = table.trim().split('\n');
-        return rows.map((row: string) => row.trim().split(/\s+/).map(cell => parseFloat(cell) || cell));
-    });
-}
-
-function getWebviewContent_heatmap(tables: any[]) {
-    let min = Number.MAX_VALUE;
-    let max = Number.MIN_VALUE;
-    tables.forEach(table => {
-        table.forEach((row: any[], rowIndex: any) => {
-            row.forEach((cell, colIndex) => {
-                if (rowIndex - 1 !== colIndex) {
-                    if (!isNaN(cell)) {
-                        min = Math.min(min, cell);
-                        max = Math.max(max, cell);
-                    }
-                }
-            });
-        });
-    });
-
-    const tablesHTML = tables.map(table => {
-        const rowsHTML = table.map((row: any[], rowIndex: any) => {
-            if (rowIndex === 0) {return '';}
-            const cellsHTML = row.map((cell, colIndex) => {
-                const isOffDiagonal = rowIndex - 1 !== colIndex;
-                const cellStyle = isOffDiagonal ? `style="background-color: ${getColor(cell, min, max)}"` : '';
-                return `<td ${cellStyle}>${cell}</td>`;
-            }).join('');
-            return `<tr>${cellsHTML}</tr>`;
-        }).join('');
-        return `<table>${rowsHTML}</table>`;
-    }).join('<br><br>');
-
-    return `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>Heatmap Viewer</title>
-            <style>
-                body {
-                    font-family: monospace;
-                }
-                table {
-                    border-collapse: separate;
-                    margin-bottom: 10px;
-                    font-size: smaller;
-                }
-                td {
-                    border-radius: 3px;
-                    border: 1px;
-                    padding: 3px;
-                }
-            </style>
-        </head>
-        <body>
-            ${tablesHTML}
-        </body>
-        </html>`;
-}
-
-function getColor(value: number, min: number, max: number): string {
-    const range = Math.max(Math.abs(min), Math.abs(max));
-    const normalizedValue = value / range;
-    const hue = 120 * (1 - normalizedValue);
-
-    if (normalizedValue === 0) {
-        return `hsl(0, 0%, 60%, 30%)`;
-    }
-
-    return `hsl(${hue}, 100%, 50%, 60%)`;
-}
 
 async function readNmTable(filePath: string): Promise<any[]> {
     return new Promise((resolve, reject) => {
@@ -613,6 +545,27 @@ async function readNmTable(filePath: string): Promise<any[]> {
             const lines = data.split('\n').filter(line => line.trim() !== '');
             const header = lines[1].trim().split(/\s+/);
             const rows = lines.slice(2).map(line => {
+                const values = line.trim().split(/\s+/);
+                const row: { [key: string]: string | number } = {};
+                header.forEach((col, index) => {
+                    row[col] = isNaN(Number(values[index])) ? values[index] : Number(values[index]);
+                });
+                return row;
+            });
+            resolve(rows);
+        });
+    });
+}
+async function readNmTable_heatmap(filePath: string): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+        fs.readFile(filePath, 'utf8', (err, data) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            const lines = data.split('\n').filter(line => line.trim() !== '');
+            const header = lines[1].trim().split(/\s+/);
+            const rows = lines.slice(1).map(line => {
                 const values = line.trim().split(/\s+/);
                 const row: { [key: string]: string | number } = {};
                 header.forEach((col, index) => {
@@ -932,6 +885,7 @@ function getWebviewContent_hist(data: any[], theme: string) {
     const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
     const controlTextColor = isDarkTheme ? 'white' : 'black';
     const annotationColor = isDarkTheme ? 'white' : 'black';
+    const borderColor = isDarkTheme ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'; // 연한 테두리 색상
 
     // Generate column options HTML
     const columnOptions = columns.map(col => `<option value="${col}">${col}</option>`).join('');
@@ -954,7 +908,7 @@ function getWebviewContent_hist(data: any[], theme: string) {
                     z-index: 100; 
                     background: rgba(255, 255, 255, 0.8); 
                     padding: 10px; 
-                    border-radius: 5px;
+                    border-radius: 5px; 
                     box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); 
                     cursor: move; 
                     display: flex; 
@@ -976,7 +930,7 @@ function getWebviewContent_hist(data: any[], theme: string) {
                     <option value="">None</option>${columnOptions}
                 </select>
                 <button id="updatePlot">Update Plot</button>
-                <button id="togglePlot">Toggle Plot</button>
+                <button id="togglePlot">Toggle Splom</button>
             </div>
             <div id="plot"></div>
             <script>
@@ -1104,8 +1058,8 @@ function getWebviewContent_hist(data: any[], theme: string) {
                         const xDomainEnd = col / adjustedNumCols - xGap;
                         const yDomainStart = 1 - row / numRows + yGap;
                         const yDomainEnd = 1 - (row - 1) / numRows - yGap;
-                        layout["xaxis" + (index + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: true, matches: null, tickangle: 90 };
-                        layout["yaxis" + (index + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: true, autorange: true, matches: null, tickangle: 0 };
+                        layout["xaxis" + (index + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: true, matches: null, tickangle: 90, gridcolor: '${borderColor}' };
+                        layout["yaxis" + (index + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: true, autorange: true, matches: null, tickangle: 0, gridcolor: '${borderColor}' };
 
                         annotations.push({
                             x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
@@ -1174,8 +1128,8 @@ function getWebviewContent_hist(data: any[], theme: string) {
                                         autobinx: true
                                     });
                                 });
-                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false, matches: null };
-                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false, matches: null };
+                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, matches: null, gridcolor: '${borderColor}' };
+                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, matches: null, gridcolor: '${borderColor}' };
 
                                 annotations.push({
                                     x: (xIndex + 0.5) / columnsToPlot.length,
@@ -1191,7 +1145,7 @@ function getWebviewContent_hist(data: any[], theme: string) {
 
                                 // Add tick labels to the diagonal cells
                                 if (xIndex === columnsToPlot.length - 1) {
-                                    layout['xaxis' + index].showticklabels = true;
+                                    layout['xaxis' + index].showticklabels = false;
                                     layout['xaxis' + index].tickangle = 90;
                                 }
                                 if (yIndex === 0) {
@@ -1222,14 +1176,14 @@ function getWebviewContent_hist(data: any[], theme: string) {
                                     y: [regression.slope * Math.min(...xData) + regression.intercept, regression.slope * Math.max(...xData) + regression.intercept],
                                     mode: 'lines',
                                     type: 'scatter',
-                                    line: { color: 'rgba(0, 0, 255, 0.8)', width: 2 }, // Prominent regression line
+                                    line: { color: 'rgba(255, 102, 0, 0.8)', width: 3 }, // Prominent regression line
                                     xaxis: 'x' + index,
                                     yaxis: 'y' + index,
                                     showlegend: false
                                 });
 
-                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
-                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
+                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
+                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
                             } else {
                                 // Lower triangle (text with Pearson correlation coefficient)
                                 const xData = currentData.map(row => row[xCol]);
@@ -1255,8 +1209,8 @@ function getWebviewContent_hist(data: any[], theme: string) {
                                     yanchor: 'middle'
                                 });
 
-                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
-                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: false, showticklabels: false };
+                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
+                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
                             }
                         });
                     });
@@ -1303,6 +1257,125 @@ function getWebviewContent_hist(data: any[], theme: string) {
         </html>
     `;
 }
+
+
+function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: string): string {
+    const xLabels = Object.values(data[0]).slice(1) as string[]; // 첫 행의 첫 열을 제외한 값
+    const yLabels = data.slice(1).map(row => Object.values(row)[0] as string); // 첫 열의 첫 행을 제외한 값
+    const originalZValues = data.slice(1).map(row => Object.values(row).slice(1).map(value => Number(value)) as number[]); // 원래 값들
+    const ignoreDiagonals = !fileName.endsWith('.phi'); // 확장자가 .phi이면 대각 요소를 색칠하지 않음
+    const zValues = originalZValues.map((row, rowIndex) =>
+        row.map((value, colIndex) => {
+            if (ignoreDiagonals && rowIndex === colIndex) {return NaN;} // 대각선 요소는 NaN으로 설정하여 색상 제거
+            return value === 0 ? 0 : Math.tanh(Math.abs(value)) * Math.sign(value); // zValues를 tanh 스케일로 변환
+        })
+    );
+
+    const textValues = originalZValues.map(row => row.map(value => value.toFixed(2))); // 텍스트 값 생성, 소수점 둘째 자리까지 반올림
+
+    // Determine colors based on the theme
+    const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
+    const axisColor = isDarkTheme ? 'white' : 'black';
+    const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
+    const gridColor = isDarkTheme ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'; // 옅은 그리드 색상
+
+    // Generate annotations for each cell
+    const annotations = [];
+    for (let i = 0; i < yLabels.length; i++) {
+        for (let j = 0; j < xLabels.length; j++) {
+            annotations.push({
+                x: xLabels[j],
+                y: yLabels[i],
+                text: textValues[i][j], // display untransformed val.
+                xref: 'x1',
+                yref: 'y1',
+                showarrow: false,
+                textangle: -45, // Text angle
+                font: {
+                    color: axisColor
+                }
+            });
+        }
+    }
+
+    // Create custom colorscale to adjust opacity for zero values
+    const colorscale = [
+        [0, 'rgba(102, 153, 204, 1)'],
+        [0.25, 'rgba(153, 204, 204, 0.8)'],
+        [0.5, 'rgba(190, 190, 190, 0.4)'],
+        [0.75, 'rgba(220, 170, 132, 0.8)'],
+        [1, 'rgba(255, 102, 102, 1)']
+    ];
+
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <style>
+                body { margin: 0; padding: 0; }
+                #plot { width: 100vw; height: 100vh; background: transparent; }
+            </style>
+        </head>
+        <body>
+            <div id="plot"></div>
+            <script>
+                const xLabels = ${JSON.stringify(xLabels)};
+                const yLabels = ${JSON.stringify(yLabels)};
+                const originalZValues = ${JSON.stringify(originalZValues)};
+                let zValues = ${JSON.stringify(zValues)};
+                const textValues = ${JSON.stringify(textValues)};
+                const annotations = ${JSON.stringify(annotations)};
+                const colorscale = ${JSON.stringify(colorscale)};
+                const axisColor = '${axisColor}';
+                const backgroundColor = '${backgroundColor}';
+                const gridColor = '${gridColor}';
+                const ignoreDiagonals = ${ignoreDiagonals};
+
+                function getZValues(ignoreDiagonals) {
+                    return originalZValues.map((row, rowIndex) =>
+                        row.map((value, colIndex) => {
+                            if (ignoreDiagonals && rowIndex === colIndex) return NaN;
+                            return value === 0 ? 0 : Math.tanh(Math.abs(value)) * Math.sign(value);
+                        })
+                    );
+                }
+
+                function updatePlot(ignoreDiagonals) {
+                    zValues = getZValues(ignoreDiagonals);
+                    Plotly.react('plot', [{
+                        z: zValues,
+                        x: xLabels,
+                        y: yLabels,
+                        type: 'heatmap',
+                        colorscale: colorscale,
+                        text: textValues,
+                        texttemplate: '%{text}',
+                        hoverinfo: 'x+y',
+                        xgap: 2.5, // x축 여백 추가
+                        ygap: 2.5, // y축 여백 추가
+                        colorbar: { showscale: false } // 색깔 레전드 숨기기
+                    }], {
+                        paper_bgcolor: backgroundColor,
+                        plot_bgcolor: backgroundColor,
+                        font: { color: axisColor },
+                        xaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor },
+                        yaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor },
+                        annotations: annotations,
+                        title: '${fileName}' // 파일 이름으로 타이틀 설정
+                    }, { responsive: true });
+                }
+
+                updatePlot(ignoreDiagonals);
+            </script>
+        </body>
+        </html>
+    `;
+}
+
+
 
 
 export function deactivate() {}

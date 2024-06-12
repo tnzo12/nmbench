@@ -6,7 +6,7 @@
     "categories": ["Other"],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "engines": {
         "vscode": "^1.89.0"
     },
@@ -16,15 +16,19 @@
         "commands": [
             {
                 "command": "extension.readNmTableAndPlot",
-                "title": "Inspect data",
+                "title": "Data inspection",
                 "icon": {
-                    "dark": "./resources/dark/inspect.svg",
-                    "light": "./resources/light/inspect.svg"
+                    "dark": "./resources/dark/graph.svg",
+                    "light": "./resources/light/graph.svg"
                 }
             },
             {
                 "command": "extension.showHistogram",
-                "title": "Histogram"
+                "title": "Histogram",
+                "icon": {
+                    "dark": "./resources/dark/hist.svg",
+                    "light": "./resources/light/hist.svg"
+                }
             },
             {
                 "command": "extension.manageRScriptCommand",
@@ -145,7 +149,7 @@
                 },
                 {
                     "command": "extension.manageRScriptCommand",
-                    "when": "viewItem == modFile",
+                    "when": "viewItem == modFile || viewItem == modFolder",
                     "group": "3.Rscript operations"
                 }
             ],
@@ -164,7 +168,7 @@
                 },
                 {
                     "command": "extension.showHistogram",
-                    "when": "resourceFilename =~ /(tab|table)/gi",
+                    "when": "resourceFilename =~ /(tab|table)/gi || resourceExtname == .phi",
                     "group": "navigation"
                 },
                 {
@@ -184,7 +188,7 @@
                 },
                 {
                     "command": "extension.showHeatmap",
-                    "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor",
+                    "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor  || resourceExtname == .phi",
                     "group": "navigation"
                 }
             ]
