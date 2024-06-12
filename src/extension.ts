@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import * as util from 'util';
 import * as childProcess from 'child_process';
 import { showModFileContextMenu, showModFileContextMenuNONMEM, showRScriptCommand } from './commands';
-import * as os from 'os';
 
 const readFile = util.promisify(fs.readFile);
 

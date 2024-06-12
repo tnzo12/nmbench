@@ -2,8 +2,12 @@
     "name": "nmbench",
     "displayName": "nmbench",
     "description": "VS Code extension for NONMEM run management",
-    "author": {"name": "Woojin Jung"},
-    "categories": ["Other"],
+    "author": {
+        "name": "Woojin Jung"
+    },
+    "categories": [
+        "Other"
+    ],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
     "version": "0.0.5",
@@ -198,9 +202,11 @@
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
-        "postinstall": "node ./node_modules/vscode/bin/install"
-    },
-    "devDependencies": {
+        "pretest": "npm run compile && npm run lint",
+        "lint": "eslint src --ext ts",
+        "test": "vscode-test"
+      },
+      "devDependencies": {
         "@types/vscode": "^1.89.0",
         "@types/mocha": "^10.0.6",
         "@types/node": "18.x",
@@ -211,16 +217,10 @@
         "@vscode/test-cli": "^0.0.9",
         "@vscode/test-electron": "^2.3.9"
       },
-    "dependencies": {
-        "node-fetch": "^3.3.2",
-        "@types/node": "18.x",
-        "@types/vscode": "^1.89.0",
-        "typescript": "^5.4.5"
-    },
     "license": "https://github.com/tnzo12/nmbench/blob/main/LICENSE",
     "bugs": {
-      "url": "https://github.com/tnzo12/nmbench/issues",
-      "email": "tnzo12@hotmail.com"
+        "url": "https://github.com/tnzo12/nmbench/issues",
+        "email": "tnzo12@hotmail.com"
     },
     "homepage": "https://github.com/tnzo12/nmbench"
 }
