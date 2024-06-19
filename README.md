@@ -5,12 +5,14 @@
 nmbench provides following features:
 
 Viewer functions (in primary side bar; by right clinking tree view item)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/demo_viewer.png)
 1. *Model fit summary* - run 'sumo' command in PsN to summarize run result
 2. *Run PsN tool*
 3. *Show related files* - Create a quick pick menu for the files with identical name
 4. *Run R script*
 5. *Show R scripts*
 
+Editor functions (as a upper right side buttons in the editor pane)
 1. **Run nmfe** (command for NONMEM only) ![NMFE button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/nonmem.png)
 2. **Run PsN tool** ![PsN button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/psn.png)
 3. **Run R script** ![R button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/r.png)
@@ -58,7 +60,7 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.0.7
+### 0.0.7 - 0.0.8
 Minor fixes
 ### 0.0.4 - 0.0.6
 Fixed Rscript working directory problem
