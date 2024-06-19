@@ -18,13 +18,13 @@ Viewer functions (in primary side bar; by right clinking tree view item)
   margin-right: 0.5em;
 }
 </style>
-1. **Run nmfe** (command for NONMEM only) <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/nonmem.svg" alt="NMFE button" width="20" height="20">
-2. **Run PsN tool** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/psn.svg" alt="PsN button" width="20" height="20">
-3. **Run R script** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/r.svg" alt="R button" width="20" height="20">
+1. **Run nmfe** (command for NONMEM only) <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/nonmem.png" alt="NMFE button" width="20" height="20">
+2. **Run PsN tool** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/psn.png" alt="PsN button" width="20" height="20">
+3. **Run R script** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/r.png" alt="R button" width="20" height="20">
 4. **Visualization** - heatmap, line plotting, histograms, scatter plot matrix ... 
-    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/mat.svg" alt="Heatmap button" width="20" height="20"> Heatmap
-    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/graph.svg" alt="Line plot button" width="20" height="20"> Line plotting
-    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/hist.svg" alt="Hist button" width="20" height="20"> Histogram
+    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/mat.png" alt="Heatmap button" width="20" height="20"> Heatmap
+    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/graph.png" alt="Line plot button" width="20" height="20"> Line plotting
+    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/hist.png" alt="Hist button" width="20" height="20"> Histogram
 More functions will be added in demand...
 
 > Demo
