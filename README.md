@@ -10,34 +10,28 @@ Viewer functions (in primary side bar; by right clinking tree view item)
 3. *Show related files* - Create a quick pick menu for the files with identical name
 4. *Run R script*
 5. *Show R scripts*
-<style>
-.button-icon {
-  width: 1.2em;
-  height: 1.2em;
-  vertical-align: middle;
-  margin-right: 0.5em;
-}
-</style>
-1. **Run nmfe** (command for NONMEM only) <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/nonmem.png" alt="NMFE button" width="20" height="20">
-2. **Run PsN tool** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/psn.png" alt="PsN button" width="20" height="20">
-3. **Run R script** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/r.png" alt="R button" width="20" height="20">
-4. **Visualization** - heatmap, line plotting, histograms, scatter plot matrix ... 
-    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/mat.png" alt="Heatmap button" width="20" height="20"> Heatmap
-    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/graph.png" alt="Line plot button" width="20" height="20"> Line plotting
-    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/hist.png" alt="Hist button" width="20" height="20"> Histogram
+
+1. **Run nmfe** (command for NONMEM only) ![NMFE button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/nonmem.png)
+2. **Run PsN tool** ![PsN button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/psn.png)
+3. **Run R script** ![R button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/r.png)
+4. **Visualization** - heatmap, line plotting, histograms, scatter plot matrix ...
+
+    - ![Heatmap button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/mat.png) Heatmap
+    - ![Line plot button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/graph.png) Line plotting
+    - ![Hist button](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/hist.png) Histogram
 More functions will be added in demand...
 
 > Demo
-> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo.gif)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/demo.gif)
 
 Visualization
 Button will appear on certain file types
 Heatmap viewer for matrix type data (.cov, .cor, .coi)
-> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_matrix.png)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/demo_matrix.png)
 
 Data inpesctor for table dataset (File name conatining ~tab, ~table)
-> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_plot.png)
-> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_hist.png)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/demo_plot.png)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/readme/demo_hist.png)
 
 ## Requirements
 The extension is made in follwing system settings:
