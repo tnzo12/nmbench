@@ -18,15 +18,13 @@ Viewer functions (in primary side bar; by right clinking tree view item)
   margin-right: 0.5em;
 }
 </style>
-Editor functions (by a button top-right in the editor when you open .mod or .ctl, .cov, .coi, sdtab, patab... etc)
-1. *Run nmfe* (command for NONMEM only) <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/nonmem.svg" alt="NMFE button" class="button-icon">
-2. *Run PsN tool* <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/psn.svg" alt="PsN button" class="button-icon">
-3. *Run R script* <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/r.svg" alt="R button" class="button-icon">
-4. Visualization - heatmap, line ploting, histograms, scatter plot matrix ...
-<img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/mat.svg" alt="Heatmap button" class="button-icon"> 
-<img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/graph.svg" alt="Line plot button" class="button-icon"> 
-<img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/hist.svg" alt="Hist button" class="button-icon"> 
-
+1. **Run nmfe** (command for NONMEM only) <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/nonmem.svg" alt="NMFE button" width="20" height="20">
+2. **Run PsN tool** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/psn.svg" alt="PsN button" width="20" height="20">
+3. **Run R script** <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/r.svg" alt="R button" width="20" height="20">
+4. **Visualization** - heatmap, line plotting, histograms, scatter plot matrix ... 
+    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/mat.svg" alt="Heatmap button" width="20" height="20"> Heatmap
+    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/graph.svg" alt="Line plot button" width="20" height="20"> Line plotting
+    - <img src="https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/light/hist.svg" alt="Hist button" width="20" height="20"> Histogram
 More functions will be added in demand...
 
 > Demo
@@ -35,7 +33,7 @@ More functions will be added in demand...
 Visualization
 Button will appear on certain file types
 Heatmap viewer for matrix type data (.cov, .cor, .coi)
-> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_mat.png)
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_matrix.png)
 
 Data inpesctor for table dataset (File name conatining ~tab, ~table)
 > ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_plot.png)
