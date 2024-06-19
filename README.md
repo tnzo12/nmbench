@@ -4,20 +4,30 @@
 ## Features
 nmbench provides following features:
 
-Viewer functions (as a primary side bar)
+Viewer functions (in primary side bar; by right clinking tree view item)
 1. *Model fit summary* - run 'sumo' command in PsN to summarize run result
 2. *Run PsN tool*
 3. *Show related files* - Create a quick pick menu for the files with identical name
 4. *Run R script*
 5. *Show R scripts*
+<style>
+.button-icon {
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: middle;
+  margin-right: 0.5em;
+}
+</style>
+Editor functions (by a button top-right in the editor when you open .mod or .ctl, .cov, .coi, sdtab, patab... etc)
+1. *Run nmfe* (command for NONMEM only) <img src="./resources/light/nonmem.svg" alt="NMFE button" class="button-icon">
+2. *Run PsN tool* <img src="./resources/light/psn.svg" alt="PsN button" class="button-icon">
+3. *Run R script* <img src="./resources/light/r.svg" alt="R button" class="button-icon">
+4. Visualization - heatmap, line ploting, histograms, scatter plot matrix ...
+<img src="./resources/light/mat.svg" alt="Heatmap button" class="button-icon"> 
+<img src="./resources/light/graph.svg" alt="Line plot button" class="button-icon"> 
+<img src="./resources/light/hist.svg" alt="Hist button" class="button-icon"> 
 
-Editor functions (as a button top-right)
-1. *Run nmfe* (command for NONMEM only)
-2. *Run PsN tool*
-3. *Run R script*
-4. Visualization - heatmap, line ploting, histograms, scatter plot matrix ... 
-
-More will be added in demand...
+More functions will be added in demand...
 
 > Demo
 > ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo.gif)
@@ -27,9 +37,9 @@ Button will appear on certain file types
 Heatmap viewer for matrix type data (.cov, .cor, .coi)
 > ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_mat.png)
 
-Data inpector for table dataset (File name conatining ~tab, ~table)
+Data inpesctor for table dataset (File name conatining ~tab, ~table)
 > ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_plot.png)
-
+> ![Demo](https://raw.githubusercontent.com/tnzo12/nmbench/main/resources/demo_hist.png)
 
 ## Requirements
 The extension is made in follwing system settings:
@@ -56,6 +66,8 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
+### 0.0.7
+Minor fixes
 ### 0.0.4 - 0.0.6
 Fixed Rscript working directory problem
 Renewed heatmap function to use plotly
@@ -64,5 +76,3 @@ Minor fix: Command prompt settings in Windows
 Minor fix: Command prompt as terminal in Windows
 ### 0.0.2
 Data visualization, minor updates
-### 0.0.1
-Initial release
