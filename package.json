@@ -35,6 +35,14 @@
                 }
             },
             {
+                "command": "extension.readExtFile",
+                "title": "Output",
+                "icon": {
+                    "dark": "./resources/dark/inspect.svg",
+                    "light": "./resources/light/inspect.svg"
+                }
+            },
+            {
                 "command": "extension.manageRScriptCommand",
                 "title": "Show R Scripts"
             },
@@ -173,6 +181,11 @@
                 {
                     "command": "extension.showHistogram",
                     "when": "resourceFilename =~ /(tab|table)/gi || resourceExtname == .phi",
+                    "group": "navigation"
+                },
+                {
+                    "command": "extension.readExtFile",
+                    "when": "resourceFilename =~ /(tab|table)/gi || resourceExtname == .ext",
                     "group": "navigation"
                 },
                 {

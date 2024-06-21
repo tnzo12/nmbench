@@ -392,8 +392,36 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                 });
             }
+        }),
+        vscode.commands.registerCommand('extension.readExtFile', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const document = editor.document;
+                const fileName = document.fileName;
+                if (fileName.endsWith('.ext')) {
+                    const data = await readNmTable_ext(fileName);
+                    const panel = vscode.window.createWebviewPanel(
+                        'extTable',
+                        'EXT Table',
+                        vscode.ViewColumn.One,
+                        { enableScripts: true }
+                    );
+    
+                    // Get the current theme
+                    const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+                    panel.webview.html = getWebviewContent_table(data, theme);
+    
+                    // Handle messages from the webview
+                    panel.webview.onDidReceiveMessage(message => {
+                        if (message.command === "updateTable") {
+                            panel.webview.postMessage({ command: "tableData", data: data, config: message.config });
+                        }
+                    });
+                } else {
+                    vscode.window.showErrorMessage('The active file is not an EXT file.');
+                }
+            }
         })
-        
         
     );
 
@@ -575,6 +603,96 @@ async function readNmTable_heatmap(filePath: string): Promise<any[]> {
             resolve(rows);
         });
     });
+}
+
+
+async function readNmTable_ext(filePath: string): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+        fs.readFile(filePath, 'utf8', (err, data) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+
+            // Split the content into lines
+            const lines = data.split('\n').filter(line => line.trim() !== '');
+
+            // Split into sections based on "TABLE NO"
+            const sections: { tableNoLine: string, lines: string[] }[] = [];
+            let currentSection: string[] = [];
+            let currentTableNoLine = '';
+
+            lines.forEach(line => {
+                if (line.trim().startsWith('TABLE NO')) {
+                    if (currentSection.length > 0) {
+                        sections.push({ tableNoLine: currentTableNoLine, lines: currentSection });
+                    }
+                    currentSection = [line];
+                    currentTableNoLine = line;
+                } else {
+                    currentSection.push(line);
+                }
+            });
+            if (currentSection.length > 0) {
+                sections.push({ tableNoLine: currentTableNoLine, lines: currentSection });
+            }
+
+            // Process each section
+            const tables = sections.map(({ tableNoLine, lines }) => {
+                const headerLine = lines.find(line => line.trim().startsWith('ITERATION'));
+                if (!headerLine) {
+                    return null;
+                }
+
+                const header = headerLine.trim().split(/\s+/);
+                const rows = lines
+                    .filter(line => !line.trim().startsWith('TABLE NO') && !line.trim().startsWith('ITERATION'))
+                    .map(line => {
+                        const values = line.trim().split(/\s+/);
+                        const row: { [key: string]: string | number } = {};
+                        header.forEach((col, index) => {
+                            row[col] = isNaN(Number(values[index])) ? values[index] : Number(values[index]);
+                        });
+                        return row;
+                    });
+
+                // Filter rows where ITERATION is greater than -1000000000
+                const filteredRows = rows.filter(row => (row['ITERATION'] as number) > -1000000000);
+
+                if (filteredRows.length === 0) {
+                    return null;
+                }
+
+                const firstRow = filteredRows[0];
+                const lastRow = filteredRows[filteredRows.length - 1];
+
+                // Sparkline data for each column
+                const sparklineData: { [key: string]: number[] } = {};
+                header.forEach(col => {
+                    if (typeof firstRow[col] === 'number') {
+                        sparklineData[col] = filteredRows.map(row => row[col] as number);
+                    }
+                });
+
+                return { tableNoLine, firstRow, lastRow, sparklineData, header };
+            }).filter(table => table !== null);
+
+            resolve(tables);
+        });
+    });
+}
+
+
+
+function generateSparkline(data: number[]): string {
+    const max = Math.max(...data);
+    const min = Math.min(...data);
+    const range = max - min;
+    return data.map((value, index) => {
+        const x = (index / (data.length - 1)) * 100;
+        const y = ((value - min) / range) * 100;
+        return `${x},${100 - y}`;
+    }).join(' ');
 }
 
 function getWebviewContent_plotly(data: any[], theme: string): string {
@@ -1373,8 +1491,169 @@ function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: 
         </html>
     `;
 }
+function getWebviewContent_table(data: any[], theme: string): string {
+    const tablesHtml = data.map(({ tableNoLine, firstRow, lastRow, sparklineData, header }, tableIndex) => {
+        const columns = header;
 
+        const difference = columns.map((col: string | number) => {
+            if (typeof firstRow[col] === 'number' && typeof lastRow[col] === 'number') {
+                return (lastRow[col] as number) - (firstRow[col] as number);
+            }
+            return null;
+        });
 
+        const changeInPercent = columns.map((col: string | number) => {
+            if (typeof firstRow[col] === 'number' && typeof lastRow[col] === 'number') {
+                const diff = (lastRow[col] as number) - (firstRow[col] as number);
+                return (diff / (firstRow[col] as number)) * 100;
+            }
+            return null;
+        });
 
+        const getMetricColor = (metric: string): string | null => {
+            if (metric.includes('THETA')) {return '#6699cc';}
+            if (metric.includes('OMEGA')) {return '#66cc99';}
+            if (metric.includes('SIGMA')) {return '#ff6666';}
+            return null;
+        };
+
+        const getBarColor = (value: number): string => {
+            if (value <= -25) {
+                const ratio = (value + 100) / 75; // -100 to -25
+                const r = Math.round(ratio * 102);
+                return `rgba(${r}, 153, 204, 0.8)`; // Blue to yellow
+            } else if (value >= 25) {
+                const ratio = (value - 25) / 75; // 25 to 100
+                const b = Math.round((1 - ratio) * 102);
+                return `rgba(255, 102, ${b}, 0.8)`; // Yellow to red
+            } else {
+                return 'rgba(255, 204, 0, 0.8)'; // Yellow
+            }
+        };
+
+        const tableHeader = `
+            <tr>
+                <th>Metric</th>
+                <th>Value (ini-est)</th>
+                <th>Trend</th>
+                <th>Difference</th>
+                <th>Change in %</th>
+            </tr>
+        `;
+
+        const tableRows = columns.map((col: string, index: string | number) => {
+            const diff = difference[index];
+            const change = changeInPercent[index];
+            const metricColor = getMetricColor(col);
+            const barWidth = Math.min(Math.abs(change ?? 0), 100);
+            const barColor = change !== null ? getBarColor(change) : 'transparent';
+            const barPosition = change !== null ? (change >= 0 ? 'right' : 'left') : 'transparent';
+            const isOffDiagonal = col.includes('OMEGA') || col.includes('SIGMA');
+            const shouldHide = isOffDiagonal && col.match(/(\d+),(\d+)/) && col.match(/(\d+),(\d+)/)![1] !== col.match(/(\d+),(\d+)/)![2];
+            const sparklineArray = sparklineData[col] ? sparklineData[col].join(',') : '';
+            return `
+                <tr class="data-row" data-metric="${col}" style="${shouldHide ? 'display: none;' : ''}">
+                    <td ${metricColor ? `style="color: ${metricColor}"` : ''}>${col}</td>
+                    <td>
+                        ${typeof firstRow[col] === 'number' ? (firstRow[col] as number).toFixed(2) : firstRow[col]}
+                        -
+                        ${typeof lastRow[col] === 'number' ? (lastRow[col] as number).toFixed(2) : lastRow[col]}
+                    </td>
+                    <td>${sparklineArray ? '<span class="sparkline" data-values="' + sparklineArray + '"></span>' : ''}</td>
+                    <td>${diff !== null ? diff.toFixed(2) : ''}</td>
+                    <td>
+                        <div class="bar-container">
+                            <div class="bar" style="background-color: ${barColor}; width: ${barWidth}%; float: ${barPosition};"></div>
+                            <span>${change !== null ? change.toFixed(2) + '%' : ''}</span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        return `
+            <h2>${tableNoLine}</h2>
+            <table>
+                ${tableHeader}
+                ${tableRows}
+            </table>
+        `;
+    }).join('');
+
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { margin: 0; padding: 20px 0 0 20px; font-family: Arial, sans-serif; }
+                table { width: auto; border-collapse: collapse; table-layout: fixed; margin-bottom: 20px; }
+                th, td { padding: 2px 5px; text-align: left; border: 1px solid rgba(0, 0, 0, 0.2); white-space: nowrap; }
+                th { background-color: transparent; }
+                .bar-container { display: flex; align-items: center; }
+                .bar { height: 10px; margin-right: 5px; }
+                .sparkline { display: inline-block; width: 100%; height: 20px; }
+                svg { width: 100%; height: 20px; }
+            </style>
+        </head>
+        <body>
+            <button id="toggle-filter">Off-diagonal</button>
+            ${tablesHtml}
+            <script>
+                document.getElementById('toggle-filter').addEventListener('click', function() {
+                    const rows = document.querySelectorAll('.data-row');
+                    rows.forEach(function(row) {
+                        const metric = row.getAttribute('data-metric');
+                        if (metric && (metric.includes('OMEGA') || metric.includes('SIGMA'))) {
+                            const regex = /(\\d+),(\\d+)/;
+                            const match = metric.match(regex);
+                            if (match && match[1] !== match[2]) {
+                                row.style.display = row.style.display === 'none' ? '' : 'none';
+                            }
+                        }
+                    });
+                });
+
+                window.addEventListener('DOMContentLoaded', function() {
+                    const rows = document.querySelectorAll('.data-row');
+                    rows.forEach(function(row) {
+                        const metric = row.getAttribute('data-metric');
+                        if (metric && (metric.includes('OMEGA') || metric.includes('SIGMA'))) {
+                            const regex = /(\\d+),(\\d+)/;
+                            const match = metric.match(regex);
+                            if (match && match[1] !== match[2]) {
+                                row.style.display = 'none';
+                            }
+                        }
+                    });
+
+                    const sparklines = document.querySelectorAll('.sparkline');
+                    sparklines.forEach(function(span) {
+                        const values = span.getAttribute('data-values').split(',').map(Number);
+                        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        svg.setAttribute('viewBox', '0 0 100 100');
+                        const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                        const max = Math.max(...values);
+                        const min = Math.min(...values);
+                        const range = max - min;
+                        const points = values.map(function(value, index) {
+                            const x = (index / (values.length - 1)) * 100;
+                            const y = ((value - min) / range) * 100;
+                            return x + ',' + (100 - y);
+                        }).join(' ');
+                        polyline.setAttribute('points', points);
+                        polyline.setAttribute('fill', 'none');
+                        polyline.setAttribute('stroke', '#FF6666');
+                        polyline.setAttribute('stroke-width', '2');
+                        svg.appendChild(polyline);
+                        span.appendChild(svg);
+                    });
+                });
+            </script>
+        </body>
+        </html>
+    `;
+}
 
 export function deactivate() {}
