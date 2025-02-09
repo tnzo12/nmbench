@@ -8,6 +8,13 @@
 nmbench_selec <- # MODEL_FILE_IN
 nmbench_wkdir <- # MODEL_FOLDER_IN
 
+message("Selected file: \033[34m", paste(nmbench_selec, collapse = ", "), "\033[0m") # summarizing read files
+# nmbench_selec, extension check
+if (!grepl("\\.(mod|ctl|lst)$", nmbench_selec, ignore.case = TRUE)) {
+  message("\033[31m .mod or .ctl file should be selected for this script \033[0m")
+}
+message("Working direction of: \033[34m", paste(nmbench_wkdir, collapse = ", "), "\033[0m") # summarizing read files
+
 model <- nmbench_selec
 
 library(xpose)

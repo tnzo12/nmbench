@@ -13,6 +13,13 @@ library(reshape)
 nmbench_selec <- # MODEL_FILE_IN
 nmbench_wkdir <- # MODEL_FOLDER_IN
 
+message("Selected file: \033[34m", paste(nmbench_selec, collapse = ", "), "\033[0m") # summarizing read files
+# nmbench_selec, extension check
+if (grepl("\\.(mod|ctl|lst)$", nmbench_selec, ignore.case = TRUE)) {
+  message("\033[31mFor VPC script, folder VPC folder should be selected! \033[0m")
+}
+message("Working direction of: \033[34m", paste(nmbench_wkdir, collapse = ", "), "\033[0m") # summarizing read files
+
 folder <- paste0(nmbench_wkdir, "/", nmbench_selec)
 
 # ------------------------------ some plot settings -------------------
@@ -28,11 +35,11 @@ time.range = NULL # vector of range of idv eg. c(0,10)
 drop.level = NULL # vector of excluded stratification levels
 
 # color of CI areas
-ci.out.col = "#FF6666"
-ci.med.col = "#0099CC"
+ci.out.col = "#0099CC"
+ci.med.col = "#FF6666"
 # line color of observed percentiles
-obs.per.col = "#FF6666"
-obs.med.col = "#0099CC"
+obs.per.col = "#0099CC"
+obs.med.col = "#FF6666"
 col.obs="#999999"
 line.size.per = 0.8
 line.size.med = 1.2

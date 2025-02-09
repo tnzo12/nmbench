@@ -10,9 +10,9 @@
     ],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "engines": {
-        "vscode": "^1.89.0"
+        "vscode": "^1.85.0"
     },
     "activationEvents": [],
     "main": "./out/extension.js",
@@ -208,6 +208,13 @@
                     "when": "resourceExtname == .cov || resourceExtname == .coi || resourceExtname == .cor  || resourceExtname == .phi",
                     "group": "navigation"
                 }
+            ],
+            "explorer/context": [
+                {
+                    "command": "extension.readExtFile",
+                    "when": "resourceExtname == .mod || resourceExtname == .ctl",
+                    "group": "navigation"
+                }
             ]
         }
     },
@@ -220,7 +227,7 @@
         "test": "vscode-test"
       },
       "devDependencies": {
-        "@types/vscode": "^1.89.0",
+        "@types/vscode": "^1.85.0",
         "@types/mocha": "^10.0.6",
         "@types/node": "18.x",
         "@typescript-eslint/eslint-plugin": "^7.7.1",

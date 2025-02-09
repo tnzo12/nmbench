@@ -22,7 +22,7 @@ class ModFileViewerProvider implements vscode.TreeDataProvider<ModFile | ModFold
     async getChildren(element?: ModFile | ModFolder): Promise<(ModFile | ModFolder)[]> {
         if (!element) {
             const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (!workspaceFolders) {return [];}
+            if (!workspaceFolders) { return []; }
             return workspaceFolders.map(folder => new ModFolder(folder.uri));
         } else if (element instanceof ModFolder) {
             try {
@@ -70,7 +70,7 @@ class ModFileViewerProvider implements vscode.TreeDataProvider<ModFile | ModFold
 
     getParent(element: ModFile | ModFolder): vscode.ProviderResult<ModFile | ModFolder> {
         const parentUri = path.dirname(element.uri.fsPath);
-        if (parentUri === element.uri.fsPath) {return null;}
+        if (parentUri === element.uri.fsPath) { return null; }
         return new ModFolder(vscode.Uri.file(parentUri));
     }
 }
@@ -82,9 +82,20 @@ class ModFile extends vscode.TreeItem {
         this.tooltip = this.extractDescription(fileContent) || uri.fsPath;
         this.contextValue = 'modFile';
 
+        // Status revealing
         const statuses = this.getStatuses();
         this.tooltip = statuses.map(status => status.text).join(' ');
-        this.description = statuses.filter(status => status.code !== '✔️' && status.code !== '❌').map(status => status.code).join(' ');
+        this.description = statuses.map(status => status.code).join(' ');
+
+        const objectiveFunctionValue = this.getObjectiveFunctionValue();
+        if (objectiveFunctionValue) {
+            // 트리에 보일 때 라벨 오른쪽에 표시하고 싶다면:
+            this.description = (this.description ?? '') + ` ${objectiveFunctionValue}`;
+            // 또는 아예 덮어쓰기 하고 싶다면:
+            // this.description = objectiveFunctionValue;
+            // 툴팁에만 표시하고 싶다면:
+            // this.tooltip = `Objective Function Value: ${objectiveFunctionValue}`;
+        }
 
         if (statuses.length > 0) {
             this.iconPath = this.getStatusIconPath(statuses[0].text);
@@ -92,14 +103,18 @@ class ModFile extends vscode.TreeItem {
             this.iconPath = new vscode.ThemeIcon('file');
         }
 
-        const objectiveFunctionValue = this.getObjectiveFunctionValue();
-        if (objectiveFunctionValue) {
-            this.description += ` ${objectiveFunctionValue}`;
-        }
+
+        this.command = {
+            command: 'vscode.open',
+            title: 'Open File',
+            arguments: [this.uri]
+        };
+
+        this.contextValue = 'modFile';
     }
 
     private extractDescription(content: string): string | null {
-        const descriptionRegex = /.*Description:\s*(.*)/i;
+        const descriptionRegex = /.*Description:\\s*(.*)/i;
         const match = content.match(descriptionRegex);
         return match ? match[1] : null;
     }
@@ -112,10 +127,10 @@ class ModFile extends vscode.TreeItem {
 
         const content = fs.readFileSync(lstFilePath, 'utf-8');
         const statuses: { text: string, code: string }[] = [];
-        if (content.includes('MINIMIZATION SUCCESSFUL')) {
+        if (content.includes('MINIMIZATION SUCCESSFUL') || content.includes('REDUCED STOCHASTIC PORTION WAS COMPLETED')) {
             statuses.push({ text: 'Minimization Successful', code: 'S' });
         }
-        if (content.includes('TERMINATED')) {
+        if (content.includes('TERMINATED') || content.includes('REDUCED STOCHASTIC PORTION WAS NOT COMPLETED')) {
             statuses.push({ text: 'Minimization Terminated', code: 'T' });
         }
         if (content.includes('SIMULATION STEP PERFORMED')) {
@@ -156,7 +171,6 @@ class ModFile extends vscode.TreeItem {
         if (!fs.existsSync(lstFilePath)) {
             return null;
         }
-
         const content = fs.readFileSync(lstFilePath, 'utf-8');
         const objectiveFunctionRegex = /OBJECTIVE\s+FUNCTION\s+VALUE\s+WITHOUT\s+CONSTANT:\s*(-?\d+(\.\d+)?)/i;
         const match = content.match(objectiveFunctionRegex);
@@ -192,6 +206,53 @@ class ModFolder extends vscode.TreeItem {
     }
 }
 
+/**
+ * 공통 로직을 모은 함수
+ *  - node가 selection에 없으면 강제로 selection 설정 & reveal
+ *  - 폴더면 특정 정규식에 맞는 파일들(.mod/.ctl, .lst 등)을 자동 추가
+ *  - 최종 선택된 노드들 반환
+ */
+async function retrieveSelectionForNode(
+    treeView: vscode.TreeView<ModFile | ModFolder>,
+    node: ModFile | ModFolder | undefined,
+    modFileViewerProvider: ModFileViewerProvider,
+    extensionFilter?: RegExp
+): Promise<(ModFile | ModFolder)[]> {
+    if (!node) {
+        vscode.window.showInformationMessage('No items selected.');
+        return [];
+    }
+
+    let selectedNodes: (ModFile | ModFolder)[] = treeView.selection as (ModFile | ModFolder)[];
+
+    // 폴더/파일 최초 우클릭 시 기존 선택 무시 + reveal
+    if (!selectedNodes.some(selected => selected.uri.fsPath === node.uri.fsPath)) {
+        selectedNodes = [node];
+
+        await treeView.reveal(node, { select: true, focus: true });
+        // 트리 강제 갱신
+        setTimeout(() => {
+            modFileViewerProvider.refresh(node);
+        }, 100);
+    }
+
+    // 폴더이고 extensionFilter가 있으면 해당 확장자 파일 자동 추가
+    if (node instanceof ModFolder && extensionFilter) {
+        try {
+            const files = await vscode.workspace.fs.readDirectory(node.uri);
+            const matchedFiles = files
+                .filter(([name, type]) => type === vscode.FileType.File && extensionFilter.test(name))
+                .map(([name]) => new ModFile(vscode.Uri.file(path.join(node.uri.fsPath, name))));
+
+            selectedNodes = [...selectedNodes, ...matchedFiles];
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error reading folder`);
+        }
+    }
+
+    return selectedNodes;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     const modFileViewerProvider = new ModFileViewerProvider();
     const treeView = vscode.window.createTreeView('modFileViewer', {
@@ -205,96 +266,177 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showTextDocument(doc, vscode.ViewColumn.One, true);
             });
         }),
+
         vscode.commands.registerCommand('extension.refreshModFileViewer', () => {
             modFileViewerProvider.refresh();
         }),
+
         vscode.commands.registerCommand('extension.showModFileContextMenu', (uri: vscode.Uri) => {
             showModFileContextMenu([uri]);
         }),
-        vscode.commands.registerCommand('extension.showModFileContextMenuFromTreeView', () => {
-            const selectedNodes = treeView.selection as (ModFile | ModFolder)[];
+        vscode.commands.registerCommand('extension.showModFileContextMenuFromTreeView', async (node?: ModFile | ModFolder) => {
+            // 1) 현재 선택된 항목 가져오기
+            let selectedNodes = treeView.selection as (ModFile | ModFolder)[];
+
+            // 2) 우클릭한 node가 있고, selection에 없다면 => 그 node만 선택
+            if (node && !selectedNodes.some(sel => sel.uri.fsPath === node.uri.fsPath)) {
+                selectedNodes = [node];
+                // 강제로 트리 뷰에서 node를 선택 & 포커스
+                await treeView.reveal(node, { select: true, focus: true });
+                // 트리 강제 갱신
+                setTimeout(() => {
+                    modFileViewerProvider.refresh(node);
+                }, 100);
+            }
+
+            // 3) 최종적으로 아무것도 선택되지 않았다면 종료
             if (!selectedNodes || selectedNodes.length === 0) {
                 vscode.window.showInformationMessage('No items selected.');
                 return;
             }
-            showModFileContextMenu(selectedNodes);
+
+            // 4) 폴더라면 내부 `.mod`/`.ctl` 파일도 자동 추가
+            let finalNodes: (ModFile | ModFolder)[] = [];
+            for (const item of selectedNodes) {
+                // 원래 선택된 항목 먼저 넣고
+                finalNodes.push(item);
+
+                // 만약 폴더면 내부 .mod/.ctl 파일 검색하여 추가
+                if (item instanceof ModFolder) {
+                    try {
+                        const files = await vscode.workspace.fs.readDirectory(item.uri);
+                        const modFiles = files
+                            .filter(([name, fileType]) => fileType === vscode.FileType.File && /\.(mod|ctl)$/i.test(name))
+                            .map(([name]) => new ModFile(vscode.Uri.file(path.join(item.uri.fsPath, name))));
+                        finalNodes = [...finalNodes, ...modFiles];
+                    } catch (error) {
+                        vscode.window.showErrorMessage('Error reading folder for context menu.');
+                    }
+                }
+            }
+
+            // 5) 최종적으로 showModFileContextMenu() 호출
+            showModFileContextMenu(finalNodes);
         }),
         vscode.commands.registerCommand('extension.showModFileContextMenuNONMEM', (uri: vscode.Uri) => {
             showModFileContextMenuNONMEM([uri], context);
         }),
-        vscode.commands.registerCommand('extension.showSumoCommand', () => {
-            const selectedNodes = treeView.selection;
-            if (selectedNodes.length === 0) {
-                vscode.window.showInformationMessage('No items selected.');
+
+        vscode.commands.registerCommand('extension.showSumoCommand', async (node?: ModFile | ModFolder) => {
+            // 1) 현재 트리뷰 selection 얻기
+            let selectedNodes = treeView.selection;
+
+            // 2) 우클릭한 node가 selection에 없다면, 그것만 선택으로 덮어쓰기
+            if (node && !selectedNodes.some(selected => selected.uri.fsPath === node.uri.fsPath)) {
+                selectedNodes = [node]; // 기존 selection 무시
+            }
+
+            if (!selectedNodes || selectedNodes.length === 0) {
+                vscode.window.showErrorMessage('No items selected for SUMO.');
                 return;
             }
 
-            const lstFilePaths = selectedNodes.map(node => node.uri.fsPath.replace(/\.[^.]+$/, '.lst'));
+            // 3) 다중 선택된 ModFile들에 대해 .lst 파일 수집
+            const lstFiles: vscode.Uri[] = [];
 
-            const options = {
-                cwd: path.dirname(selectedNodes[0].uri.fsPath)
-            };
-
-            lstFilePaths.forEach(lstFilePath => {
-                if (!fs.existsSync(lstFilePath)) {
-                    vscode.window.showErrorMessage(`File ${path.basename(lstFilePath)} does not exist.`);
-                    return;
+            for (const item of selectedNodes) {
+                // 폴더 선택은 무시
+                if (!(item instanceof ModFile)) {
+                    continue;
                 }
-            });
 
+                // 파일(.mod/.ctl)이면 .lst 치환
+                const lstUri = vscode.Uri.file(item.uri.fsPath.replace(/\.[^.]+$/, '.lst'));
+                try {
+                    const stat = await vscode.workspace.fs.stat(lstUri);
+                    if (stat.type === vscode.FileType.File) {
+                        lstFiles.push(lstUri);
+                    }
+                } catch (err) {
+                    // .lst 파일이 없으면 무시
+                }
+            }
+
+            // 4) .lst 파일이 하나도 없으면 에러
+            if (lstFiles.length === 0) {
+                vscode.window.showErrorMessage('No .lst files found for SUMO(PsN Summary function)');
+                return;
+            }
+
+            // 5) SUMO 명령 실행
+            const options = { cwd: path.dirname(lstFiles[0].fsPath) };
             vscode.window.showInputBox({
                 prompt: 'Enter parameters for Sumo command:',
-                value: `sumo ${lstFilePaths.map(filePath => path.basename(filePath)).join(' ')}`
+                // 여러 파일이면 sumo_compare.txt, 아니면 단일 파일명_sumo.txt
+                value: `sumo ${lstFiles.map(file => path.basename(file.fsPath)).join(' ')}`
             }).then(input => {
-                if (input) {
-                    const outputFileName = selectedNodes.length > 1 ? 'sumo_compare.txt' : `${path.basename(lstFilePaths[0], path.extname(lstFilePaths[0]))}_sumo.txt`;
-                    const outputFilePath = path.join(path.dirname(lstFilePaths[0]), outputFileName);
-                    const command = `${input} > ${outputFilePath} 2>&1`;
+                if (!input) { return; }
+                const outputFileName = (lstFiles.length > 1)
+                    ? 'sumo_compare.txt'
+                    : `${path.basename(lstFiles[0].fsPath, path.extname(lstFiles[0].fsPath))}_sumo.txt`;
 
-                    childProcess.exec(command, options, (error, stdout, stderr) => {
-                        if (error) {
-                            vscode.window.showErrorMessage(`Error executing command: ${stderr}`);
+                const outputFilePath = path.join(path.dirname(lstFiles[0].fsPath), outputFileName);
+                const command = `${input} > "${outputFilePath}" 2>&1`;
+
+                childProcess.exec(command, options, (error, stdout, stderr) => {
+                    if (error) {
+                        vscode.window.showErrorMessage(`Error executing SUMO command: ${stderr}`);
+                        return;
+                    }
+
+                    fs.readFile(outputFilePath, 'utf-8', (err, data) => {
+                        if (err) {
+                            vscode.window.showErrorMessage(`Error reading SUMO output: ${err.message}`);
                             return;
                         }
 
-                        fs.readFile(outputFilePath, 'utf-8', (err, data) => {
-                            if (err) {
-                                vscode.window.showErrorMessage(`Error reading output file: ${err.message}`);
-                                return;
-                            }
-
-                            const panel = vscode.window.createWebviewPanel(
-                                'sumoOutput',
-                                outputFileName,
-                                vscode.ViewColumn.One,
-                                {}
-                            );
-
-                            panel.webview.html = getWebviewContent(data);
-                        });
+                        // SUMO 결과 확인 WebView
+                        const panel = vscode.window.createWebviewPanel(
+                            'sumoOutput',
+                            outputFileName,
+                            vscode.ViewColumn.One,
+                            {}
+                        );
+                        panel.webview.html = getWebviewContent(data);
                     });
-                }
+                });
             });
         }),
+
+        // for managing Rscript foler (user-definable)
         vscode.commands.registerCommand('extension.manageRScriptCommand', (node: ModFile | ModFolder) => {
             const scriptsFolder = path.join(context.extensionPath, 'Rscripts');
             if (!fs.existsSync(scriptsFolder)) {
                 fs.mkdirSync(scriptsFolder);
             }
-
             vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(scriptsFolder), true);
         }),
-        vscode.commands.registerCommand('extension.showRScriptCommandFromTreeView', () => {
-            const selectedNodes = treeView.selection as (ModFile | ModFolder)[];
+
+        vscode.commands.registerCommand('extension.showRScriptCommandFromTreeView', async (node?: ModFile | ModFolder) => {
+            // 현재 트리뷰에서 선택된 항목들
+            let selectedNodes = treeView.selection as (ModFile | ModFolder)[];
+
+            // 우클릭된 node가 selection에 포함되어 있지 않다면, 해당 node만 선택
+            if (node && !selectedNodes.some(sel => sel.uri.fsPath === node.uri.fsPath)) {
+                selectedNodes = [node];
+                // 강제로 트리 뷰에서 해당 노드를 선택 & 포커스
+                await treeView.reveal(node, { select: true, focus: true });
+            }
+
+            // 선택된 항목이 없으면 메시지 띄우고 종료
             if (!selectedNodes || selectedNodes.length === 0) {
                 vscode.window.showInformationMessage('No items selected.');
                 return;
             }
+
+            // RScriptCommand 실행 (실제로는 showRScriptCommand 내부에서 로직 수행)
             showRScriptCommand(context, selectedNodes);
         }),
+
         vscode.commands.registerCommand('extension.showRScriptCommandFromEditor', (uri: vscode.Uri) => {
             showRScriptCommand(context, [uri]);
         }),
+
         vscode.commands.registerCommand('extension.showLinkedFiles', async (node: ModFile) => {
             if (!node) {
                 const editor = vscode.window.activeTextEditor;
@@ -302,38 +444,30 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.window.showErrorMessage('No file selected.');
                     return;
                 }
-                
                 const document = editor.document;
-                if (!document) {
-                    vscode.window.showErrorMessage('No file selected.');
-                    return;
-                }
-                
-                const uri = document.uri;
-                if (!uri.fsPath.match(/\.(mod|ctl)$/)) {
+                if (!document || !document.uri.fsPath.match(/\.(mod|ctl)$/)) {
                     vscode.window.showErrorMessage('The active file is not a MOD or CTL file.');
                     return;
                 }
-                
-                node = new ModFile(uri);
+                node = new ModFile(document.uri);
             }
-        
+
             const dir = path.dirname(node.uri.fsPath);
             const baseName = path.basename(node.uri.fsPath, path.extname(node.uri.fsPath));
-        
+
             fs.readdir(dir, async (err, files) => {
                 if (err) {
                     vscode.window.showErrorMessage(`Error reading directory: ${err.message}`);
                     return;
                 }
-        
+
                 const linkedFiles = files
                     .filter(file => path.basename(file, path.extname(file)) === baseName && file !== path.basename(node.uri.fsPath))
                     .map(file => ({
                         label: path.basename(file),
                         description: path.join(dir, file)
                     }));
-                    
+
                 const additionalFiles: { label: string; description: string; }[] = [];
                 const fileContent = await readFile(node.uri.fsPath, 'utf-8');
                 const tableLines = fileContent.split('\n').filter(line => line.includes('$TABLE'));
@@ -366,13 +500,14 @@ export function activate(context: vscode.ExtensionContext) {
                 });
             });
         }),
+
         vscode.commands.registerCommand('extension.showHeatmap', async () => {
             const editor = vscode.window.activeTextEditor;
             if (editor) {
                 const document = editor.document;
                 const fileName = document.fileName; // 파일 이름 가져오기
                 const baseFileName = path.basename(fileName); // 경로를 제외한 파일 이름
-            
+
                 const data = await readNmTable_heatmap(fileName);
                 const panel = vscode.window.createWebviewPanel(
                     'nmTablePlot',
@@ -380,49 +515,45 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.ViewColumn.One,
                     { enableScripts: true }
                 );
-            
+
                 // Get the current theme
                 const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
                 panel.webview.html = getWebviewContent_heatmap_plotly(data, theme, baseFileName);
-            
+
                 // Handle messages from the webview
                 panel.webview.onDidReceiveMessage(message => {
-                    if (message.command === "updatePlot") {
-                        panel.webview.postMessage({ command: "plotData", data: data, config: message.config });
+                    if (message.command === 'updatePlot') {
+                        panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
                     }
                 });
             }
         }),
-        vscode.commands.registerCommand('extension.readExtFile', async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) {
-                const document = editor.document;
-                const fileName = document.fileName;
-                if (fileName.endsWith('.ext')) {
-                    const data = await readNmTable_ext(fileName);
-                    const panel = vscode.window.createWebviewPanel(
-                        'extTable',
-                        'EXT Table',
-                        vscode.ViewColumn.One,
-                        { enableScripts: true }
-                    );
-    
-                    // Get the current theme
-                    const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-                    panel.webview.html = getWebviewContent_table(data, theme);
-    
-                    // Handle messages from the webview
-                    panel.webview.onDidReceiveMessage(message => {
-                        if (message.command === "updateTable") {
-                            panel.webview.postMessage({ command: "tableData", data: data, config: message.config });
-                        }
-                    });
-                } else {
-                    vscode.window.showErrorMessage('The active file is not an EXT file.');
-                }
+
+        vscode.commands.registerCommand('extension.readExtFile', async (uri: vscode.Uri) => {
+            const extUri = vscode.Uri.file(uri.fsPath.replace(/\.[^.]+$/, '.ext'));
+            if (fs.existsSync(extUri.fsPath)) {
+                const data = await readNmTable_ext(extUri.fsPath);
+                const panel = vscode.window.createWebviewPanel(
+                    'extTable',
+                    'EXT Table',
+                    vscode.ViewColumn.One,
+                    { enableScripts: true }
+                );
+
+                // Get the current theme
+                const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+                panel.webview.html = getWebviewContent_table(data, theme);
+
+                // Handle messages from the webview
+                panel.webview.onDidReceiveMessage(message => {
+                    if (message.command === 'updateTable') {
+                        panel.webview.postMessage({ command: 'tableData', data: data, config: message.config });
+                    }
+                });
+            } else {
+                vscode.window.showErrorMessage('The corresponding .ext file does not exist.');
             }
         })
-        
     );
 
     treeView.onDidChangeSelection(event => {
@@ -460,26 +591,26 @@ export function activate(context: vscode.ExtensionContext) {
                 const document = editor.document;
                 const fileName = document.fileName;
 
-                //if (fileName.match(/sdtab\d*|patab\d*/)) {
-                    const data = await readNmTable(fileName);
-                    const panel = vscode.window.createWebviewPanel(
-                        'nmTablePlot',
-                        'NM Table Plot',
-                        vscode.ViewColumn.One,
-                        { enableScripts: true }
-                    );
+                // if (fileName.match(/sdtab\\d*|patab\\d*/)) {
+                const data = await readNmTable(fileName);
+                const panel = vscode.window.createWebviewPanel(
+                    'nmTablePlot',
+                    'NM Table Plot',
+                    vscode.ViewColumn.One,
+                    { enableScripts: true }
+                );
 
-                    // Get the current theme
-                    const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-                    panel.webview.html = getWebviewContent_plotly(data, theme);
+                // Get the current theme
+                const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+                panel.webview.html = getWebviewContent_plotly(data, theme);
 
-                    // Handle messages from the webview
-                    panel.webview.onDidReceiveMessage(message => {
-                        if (message.command === "updatePlot") {
-                            panel.webview.postMessage({ command: "plotData", data: data, config: message.config });
-                        }
-                    });
-                //}
+                // Handle messages from the webview
+                panel.webview.onDidReceiveMessage(message => {
+                    if (message.command === 'updatePlot') {
+                        panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
+                    }
+                });
+                // }
             }
         })
     );
@@ -489,24 +620,24 @@ export function activate(context: vscode.ExtensionContext) {
         if (editor) {
             const document = editor.document;
             const fileName = document.fileName;
-    
-            //if (fileName.match(/sdtab\d*|patab\d*/)) {
-                const data = await readNmTable(fileName);
-                const panel = vscode.window.createWebviewPanel(
-                    'histogramPlot',
-                    'Histogram Plot',
-                    vscode.ViewColumn.One,
-                    { enableScripts: true }
-                );
-    
-                // Get the current theme
-                const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-                panel.webview.html = getWebviewContent_hist(data, theme);
-            //}
+            // if (fileName.match(/sdtab\\d*|patab\\d*/)) {
+            const data = await readNmTable(fileName);
+            const panel = vscode.window.createWebviewPanel(
+                'histogramPlot',
+                'Histogram Plot',
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+
+            // Get the current theme
+            const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+            panel.webview.html = getWebviewContent_hist(data, theme);
+            // }
         }
     });
 }
 
+// 아래 함수들은 기존 로직을 그대로 유지
 function getWebviewContent(output: string): string {
     const thetaClass = 'theta-highlight';
     const omegaClass = 'omega-highlight';
@@ -560,8 +691,6 @@ function getWebviewContent(output: string): string {
         </html>
     `;
 }
-
-
 async function readNmTable(filePath: string): Promise<any[]> {
     return new Promise((resolve, reject) => {
         fs.readFile(filePath, 'utf8', (err, data) => {
@@ -604,8 +733,6 @@ async function readNmTable_heatmap(filePath: string): Promise<any[]> {
         });
     });
 }
-
-
 async function readNmTable_ext(filePath: string): Promise<any[]> {
     return new Promise((resolve, reject) => {
         fs.readFile(filePath, 'utf8', (err, data) => {
@@ -656,8 +783,9 @@ async function readNmTable_ext(filePath: string): Promise<any[]> {
                         return row;
                     });
 
-                // Filter rows where ITERATION is greater than -1000000000
+                // Separate rows where ITERATION is greater than -1000000000 and less than or equal to -1000000000
                 const filteredRows = rows.filter(row => (row['ITERATION'] as number) > -1000000000);
+                const extendedRows = rows.filter(row => (row['ITERATION'] as number) <= -1000000000);
 
                 if (filteredRows.length === 0) {
                     return null;
@@ -674,27 +802,13 @@ async function readNmTable_ext(filePath: string): Promise<any[]> {
                     }
                 });
 
-                return { tableNoLine, firstRow, lastRow, sparklineData, header };
+                return { tableNoLine, firstRow, lastRow, sparklineData, header, extendedRows };
             }).filter(table => table !== null);
 
             resolve(tables);
         });
     });
 }
-
-
-
-function generateSparkline(data: number[]): string {
-    const max = Math.max(...data);
-    const min = Math.min(...data);
-    const range = max - min;
-    return data.map((value, index) => {
-        const x = (index / (data.length - 1)) * 100;
-        const y = ((value - min) / range) * 100;
-        return `${x},${100 - y}`;
-    }).join(' ');
-}
-
 function getWebviewContent_plotly(data: any[], theme: string): string {
     const columns = Object.keys(data[0]);
 
@@ -992,8 +1106,7 @@ function getWebviewContent_plotly(data: any[], theme: string): string {
         </html>
     `;
 }
-
-function getWebviewContent_hist(data: any[], theme: string) {
+function getWebviewContent_hist(data: any[], theme: string): string {
     const columns = Object.keys(data[0]);
 
     // Determine colors based on the theme
@@ -1374,8 +1487,6 @@ function getWebviewContent_hist(data: any[], theme: string) {
         </html>
     `;
 }
-
-
 function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: string): string {
     const xLabels = Object.values(data[0]).slice(1) as string[]; // 첫 행의 첫 열을 제외한 값
     const yLabels = data.slice(1).map(row => Object.values(row)[0] as string); // 첫 열의 첫 행을 제외한 값
@@ -1383,7 +1494,7 @@ function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: 
     const ignoreDiagonals = !fileName.endsWith('.phi'); // 확장자가 .phi이면 대각 요소를 색칠하지 않음
     const zValues = originalZValues.map((row, rowIndex) =>
         row.map((value, colIndex) => {
-            if (ignoreDiagonals && rowIndex === colIndex) {return NaN;} // 대각선 요소는 NaN으로 설정하여 색상 제거
+            if (ignoreDiagonals && rowIndex === colIndex) { return NaN; } // 대각선 요소는 NaN으로 설정하여 색상 제거
             return value === 0 ? 0 : Math.tanh(Math.abs(value)) * Math.sign(value); // zValues를 tanh 스케일로 변환
         })
     );
@@ -1492,92 +1603,220 @@ function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: 
     `;
 }
 function getWebviewContent_table(data: any[], theme: string): string {
-    const tablesHtml = data.map(({ tableNoLine, firstRow, lastRow, sparklineData, header }, tableIndex) => {
+    const tablesHtml = data.map(({ tableNoLine, firstRow, lastRow, sparklineData, header, extendedRows }, tableIndex) => {
         const columns = header;
 
-        const difference = columns.map((col: string | number) => {
-            if (typeof firstRow[col] === 'number' && typeof lastRow[col] === 'number') {
-                return (lastRow[col] as number) - (firstRow[col] as number);
-            }
-            return null;
-        });
-
-        const changeInPercent = columns.map((col: string | number) => {
-            if (typeof firstRow[col] === 'number' && typeof lastRow[col] === 'number') {
-                const diff = (lastRow[col] as number) - (firstRow[col] as number);
-                return (diff / (firstRow[col] as number)) * 100;
-            }
-            return null;
-        });
-
         const getMetricColor = (metric: string): string | null => {
-            if (metric.includes('THETA')) {return '#6699cc';}
-            if (metric.includes('OMEGA')) {return '#66cc99';}
-            if (metric.includes('SIGMA')) {return '#ff6666';}
-            return null;
+            const colors: { [key: string]: string } = {
+                'THETA': '#6699cc',
+                'OMEGA': '#66cc99',
+                'SIGMA': '#ff6666'
+            };
+            return Object.keys(colors).find(key => metric.includes(key)) ? colors[Object.keys(colors).find(key => metric.includes(key))!] : null;
         };
 
         const getBarColor = (value: number): string => {
-            if (value <= -25) {
-                const ratio = (value + 100) / 75; // -100 to -25
-                const r = Math.round(ratio * 102);
-                return `rgba(${r}, 153, 204, 0.8)`; // Blue to yellow
-            } else if (value >= 25) {
-                const ratio = (value - 25) / 75; // 25 to 100
-                const b = Math.round((1 - ratio) * 102);
-                return `rgba(255, 102, ${b}, 0.8)`; // Yellow to red
+            // ✅ 원하는 색상 설정 (RGB)
+            const minColor = [51, 153, 204];  // ✅ #3399CC (부드러운 블루)
+            const midColor = [102, 204, 102]; // ✅ #66CC66 (초록)
+            const maxColor = [255, 102, 102]; // ✅ #FF6666 (레드)
+        
+            // ✅ 값이 100%를 초과하는 경우 제한 (최대 150%)
+            value = Math.max(-150, Math.min(150, value));
+        
+            let ratio: number;
+            let r, g, b;
+        
+            if (value < 0) {
+                // ✅ -100 ~ 0 → minColor → midColor 보간
+                ratio = Math.max(0, (value + 100) / 100);
+                r = Math.round(minColor[0] * (1 - ratio) + midColor[0] * ratio);
+                g = Math.round(minColor[1] * (1 - ratio) + midColor[1] * ratio);
+                b = Math.round(minColor[2] * (1 - ratio) + midColor[2] * ratio);
             } else {
-                return 'rgba(255, 204, 0, 0.8)'; // Yellow
+                // ✅ 0 ~ 100 → midColor → maxColor 보간
+                ratio = Math.min(1, value / 100);
+                r = Math.round(midColor[0] * (1 - ratio) + maxColor[0] * ratio);
+                g = Math.round(midColor[1] * (1 - ratio) + maxColor[1] * ratio);
+                b = Math.round(midColor[2] * (1 - ratio) + maxColor[2] * ratio);
+            }
+        
+            return `rgba(${r}, ${g}, ${b}, 0.5)`; // ✅ RGB 색상 적용 (투명도 0.6)
+        };
+        
+        const getHeaderForValue = (value: number): string => {
+            switch (value) {
+                case -1000000000: return 'Final'; // Not used
+                case -1000000001: return 'SE';
+                case -1000000002: return 'Eig Cor';
+                case -1000000003: return 'Cond';
+                case -1000000004: return 'SD/Cor';
+                case -1000000005: return 'SeSD/Cor';
+                case -1000000006: return 'Fixed';
+                case -1000000007: return 'Term';
+                case -1000000008: return 'ParLik';
+                default: return value.toString(); // ✅ 숫자는 그대로 반환
             }
         };
 
-        const tableHeader = `
-            <tr>
-                <th>Metric</th>
-                <th>Value (ini-est)</th>
-                <th>Trend</th>
-                <th>Difference</th>
-                <th>Change in %</th>
-            </tr>
-        `;
+        const formatNumber = (num: number) => {
+            if (num === 0) { return ''; } // Hide 0 values
+            if (Math.abs(num) >= 1) { return num.toFixed(2); }
+            const str = num.toPrecision(3);
+            if (str.includes('e')) {
+                const [base, exp] = str.split('e');
+                const adjustedExp = parseInt(exp, 10) + 2;
+                return parseFloat(base).toFixed(5 - adjustedExp);
+            }
+            return str;
+        };
 
-        const tableRows = columns.map((col: string, index: string | number) => {
-            const diff = difference[index];
-            const change = changeInPercent[index];
-            const metricColor = getMetricColor(col);
-            const barWidth = Math.min(Math.abs(change ?? 0), 100);
-            const barColor = change !== null ? getBarColor(change) : 'transparent';
-            const barPosition = change !== null ? (change >= 0 ? 'right' : 'left') : 'transparent';
-            const isOffDiagonal = col.includes('OMEGA') || col.includes('SIGMA');
-            const shouldHide = isOffDiagonal && col.match(/(\d+),(\d+)/) && col.match(/(\d+),(\d+)/)![1] !== col.match(/(\d+),(\d+)/)![2];
-            const sparklineArray = sparklineData[col] ? sparklineData[col].join(',') : '';
-            return `
-                <tr class="data-row" data-metric="${col}" style="${shouldHide ? 'display: none;' : ''}">
-                    <td ${metricColor ? `style="color: ${metricColor}"` : ''}>${col}</td>
-                    <td>
-                        ${typeof firstRow[col] === 'number' ? (firstRow[col] as number).toFixed(2) : firstRow[col]}
-                        -
-                        ${typeof lastRow[col] === 'number' ? (lastRow[col] as number).toFixed(2) : lastRow[col]}
-                    </td>
-                    <td>${sparklineArray ? '<span class="sparkline" data-values="' + sparklineArray + '"></span>' : ''}</td>
-                    <td>${diff !== null ? diff.toFixed(2) : ''}</td>
-                    <td>
-                        <div class="bar-container">
-                            <div class="bar" style="background-color: ${barColor}; width: ${barWidth}%; float: ${barPosition};"></div>
-                            <span>${change !== null ? change.toFixed(2) + '%' : ''}</span>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }).join('');
+        const filteredExtendedRows = extendedRows.filter((row: { [x: string]: number; }) =>
+            row['ITERATION'] !== -1000000006 &&
+            row['ITERATION'] !== -1000000007 &&
+            row['ITERATION'] !== -1000000000 // Final value will be processed in data level
+        );
+
+        const headerDescriptions: { [key: string]: string } = {
+            "Parameter": "Model parameters",
+            "Initial": "Initial Estimate",
+            "Final": "Final Estimate",
+            "Difference (%)": "Difference between initial-final, % changes in brackets",
+            "RSE": "Relative Standard Error: Standard error / Final estimate",
+            "SE": "Standard Error",
+            "Eig Cor": "Eigenvalue Correlation",
+            "Cond": "Condition Number: identifies the line that contains the condition number, lowest, highest, Eigenvalues of the correlation matrix of the variances of the final parameters.",
+            "SD/Cor": "identifies the line that contains the OMEGA and SIGMA elements in standard deviation/correlation format",
+            "SeSD/Cor": "identifies the line that contains the standard errors to the OMEGA and SIGMA elements in standard deviation/correlation format",
+            "Fixed": "identifies the line that contains the standard errors to the OMEGA and SIGMA elements in standard deviation/correlation format",
+            "Term": "lists termination status",
+            "ParLik": "lists the partial derivative of the likelihood (-1/2 OFV) with respect to each estimated parameter. This may be useful for using tests like the Lagrange multiplier test"
+        };
+
+        // Check SE column
+const hasStdErr = filteredExtendedRows.some((row: { [x: string]: number; }) => getHeaderForValue(row['ITERATION']) === "SE");
+
+const tableHeader = `
+    <tr>
+        ${["Parameter", "Initial", "Final", "Difference (%)"]
+            .map(header => `<th data-tooltip="${headerDescriptions[header] || 'No description'}">${header}</th>`)
+            .join('')}
+        ${hasStdErr ? `<th data-tooltip="${headerDescriptions["RSE"] || 'No description'}">RSE</th>` : ''} <!-- ✅ SE가 있을 때만 RSE 추가 -->
+        ${filteredExtendedRows.map((row: { [x: string]: number; }) => {
+            const header = getHeaderForValue(row['ITERATION']);
+            return `<th data-tooltip="${headerDescriptions[header] || 'No description'}">${header}</th>`;
+        }).join('')}
+    </tr>
+`;
+const tableRows = columns.map((col: string, index: number) => {
+    const firstValue = firstRow[col];
+    const lastValue = lastRow[col];
+    const stdErrRow = hasStdErr ? filteredExtendedRows.find((row: { [x: string]: number; }) => getHeaderForValue(row['ITERATION']) === "SE") : null;
+    const stdErrValue = stdErrRow ? stdErrRow[col] : null;
+
+    const diff = lastValue - firstValue;
+    const change = (index !== 0 && index !== columns.length - 1 && firstValue !== 0) ? (diff / firstValue) * 100 : null;
+    const metricColor = getMetricColor(col);
+
+    const fixedColumn = extendedRows.find((row: { [x: string]: number; }) => row['ITERATION'] === -1000000006);
+    const isFixed = fixedColumn && fixedColumn[col] === 1;
+    const rowStyle = isFixed ? 'background-color: rgba(128, 128, 128, 0.1);' : '';
+
+    // ✅ `Std Err` 컬럼이 있는 경우만 `RSE` 계산
+    const rseValue = (hasStdErr && index !== 0 && index !== columns.length - 1 && !isFixed && stdErrValue !== null && lastValue !== 0) 
+        ? (stdErrValue / lastValue) * 100 
+        : null;
+
+    let differenceDisplay = (!isFixed && index !== 0 && index !== columns.length - 1) 
+        ? `${formatNumber(diff)} (${change !== null ? formatNumber(change) + '%' : ''})`
+        : '';
+
+    let gradientBackground = '';
+    if (!isFixed && index !== 0 && index !== columns.length - 1 && change !== null) {
+        let gradientPosition = Math.min(Math.max(50 + (change * 0.4), 10), 90);
+        let gradientWidth = Math.min(Math.abs(change) * 0.5 + 10, 50); // ✅ Difference 크기에 따라 가변 설정
+        
+        gradientBackground = `
+            background: linear-gradient(to right, 
+                transparent ${gradientPosition - gradientWidth}%, 
+                ${getBarColor(change)} ${gradientPosition}%, 
+                transparent ${gradientPosition + gradientWidth}%
+            );
+        `;
+    }
+
+    const extendedRowValues = filteredExtendedRows.map((row: { [x: string]: number; }) => {
+        const value = row[col];
+        const isStdErr = getHeaderForValue(row['ITERATION']) === "SE"; // ✅ SE 컬럼인지 확인
+    
+        return isNaN(value) || value === Infinity || value <= -1000000000 || value === 0 || value === 10000000000.00
+            ? '<td></td>'
+            : `<td style="${isStdErr ? 'color: gray;' : ''}">${formatNumber(value)}</td>`; // ✅ SE 컬럼이면 텍스트 회색
+    }).join('');
+    return `
+        <tr class="data-row" data-metric="${col}" style="${rowStyle}">
+            <td style="font-weight: bold; ${metricColor ? `color: ${metricColor};` : ''}">${col}</td>
+            <td style="color: gray;">${formatNumber(firstValue)}</td>
+            <td>${formatNumber(lastValue)}</td>
+            <td style="position: relative; padding: 5px; ${isFixed ? '' : gradientBackground}">
+                <span style="position: relative; z-index: 1;">
+                    ${differenceDisplay}
+                </span>
+            </td>
+            ${hasStdErr ? `<td>${rseValue !== null ? formatNumber(rseValue) + "%" : ""}</td>` : ''} <!-- ✅ RSE 값도 조건부 추가 -->
+            ${extendedRowValues}
+        </tr>
+    `;
+}).join('');
 
         return `
-            <h2>${tableNoLine}</h2>
-            <table>
-                ${tableHeader}
-                ${tableRows}
-            </table>
-        `;
+    <table>
+        <style>
+            table {
+                width: auto;
+                border-collapse: collapse;
+                table-layout: fixed;
+            }
+            th, td {
+                padding: 5px;
+                border: 1px solid rgba(0, 0, 0, 0.1);
+                white-space: nowrap;
+            }
+            th {
+                background-color: rgba(255, 255, 255, 0.05);
+                text-align: center; /* ✅ 헤더 가운데 정렬 */
+                position: relative;
+            }
+
+            /* ✅ 즉시 뜨는 커스텀 툴팁 스타일 */
+            th:hover::after {
+                content: attr(data-tooltip);
+                position: fixed; /* ✅ 컬럼 크기와 무관하게 위치 고정 */
+                left: auto; /* ✅ 위치 자동 조정 */
+                top: auto;
+                background-color: rgba(0, 0, 0, 0.75);
+                color: white;
+                padding: 5px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+                max-width: 200px; /* ✅ 최대 너비 설정 */
+                width: auto; /* ✅ 내용에 맞춰 너비 조정 */
+                display: inline-block; /* ✅ 크기 자동 조정 */
+                word-wrap: break-word; /* ✅ 긴 텍스트 줄 바꿈 */
+                white-space: normal; /* ✅ 여러 줄 지원 */
+                text-align: left; /* ✅ 툴팁 내부 글자 왼쪽 정렬 */
+                z-index: 1000;
+                opacity: 1;
+                transition: none;
+            }
+        </style>
+        <h4>Table NO. ${tableNoLine}</h4> <!-- ✅ Table NO. 표시 추가 -->
+        ${tableHeader}
+        ${tableRows}
+    </table>
+`;
+
+
     }).join('');
 
     return `
@@ -1589,16 +1828,16 @@ function getWebviewContent_table(data: any[], theme: string): string {
             <style>
                 body { margin: 0; padding: 20px 0 0 20px; font-family: Arial, sans-serif; }
                 table { width: auto; border-collapse: collapse; table-layout: fixed; margin-bottom: 20px; }
-                th, td { padding: 2px 5px; text-align: left; border: 1px solid rgba(0, 0, 0, 0.2); white-space: nowrap; }
+                th, td { padding: 2px 5px; text-align: left; border: 1px solid rgba(0, 0, 0, 0.1); white-space: nowrap; }
                 th { background-color: transparent; }
                 .bar-container { display: flex; align-items: center; }
                 .bar { height: 10px; margin-right: 5px; }
-                .sparkline { display: inline-block; width: 100%; height: 20px; }
                 svg { width: 100%; height: 20px; }
             </style>
         </head>
         <body>
             <button id="toggle-filter">Off-diagonal</button>
+            <br><br>
             ${tablesHtml}
             <script>
                 document.getElementById('toggle-filter').addEventListener('click', function() {
@@ -1628,27 +1867,7 @@ function getWebviewContent_table(data: any[], theme: string): string {
                         }
                     });
 
-                    const sparklines = document.querySelectorAll('.sparkline');
-                    sparklines.forEach(function(span) {
-                        const values = span.getAttribute('data-values').split(',').map(Number);
-                        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                        svg.setAttribute('viewBox', '0 0 100 100');
-                        const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-                        const max = Math.max(...values);
-                        const min = Math.min(...values);
-                        const range = max - min;
-                        const points = values.map(function(value, index) {
-                            const x = (index / (values.length - 1)) * 100;
-                            const y = ((value - min) / range) * 100;
-                            return x + ',' + (100 - y);
-                        }).join(' ');
-                        polyline.setAttribute('points', points);
-                        polyline.setAttribute('fill', 'none');
-                        polyline.setAttribute('stroke', '#FF6666');
-                        polyline.setAttribute('stroke-width', '2');
-                        svg.appendChild(polyline);
-                        span.appendChild(svg);
-                    });
+
                 });
             </script>
         </body>
@@ -1656,4 +1875,4 @@ function getWebviewContent_table(data: any[], theme: string): string {
     `;
 }
 
-export function deactivate() {}
+export function deactivate() { }
