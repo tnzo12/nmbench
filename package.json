@@ -133,7 +133,11 @@
             "explorer": [
                 {
                     "id": "modFileViewer",
-                    "name": "NONMEM bench"
+                    "name": "nmbench: browser"
+                },
+                {
+                    "id": "estimatesViewer",
+                    "name": "nmbench: Estimates"
                 }
             ]
         },
