@@ -1,153 +1,209 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 
-export class EstimatesViewerProvider implements vscode.TreeDataProvider<EstimateNode> {
-    private _onDidChangeTreeData: vscode.EventEmitter<EstimateNode | undefined> = new vscode.EventEmitter<EstimateNode | undefined>();
-    readonly onDidChangeTreeData: vscode.Event<EstimateNode | undefined> = this._onDidChangeTreeData.event;
-
-    private estimates: EstimateNode[] = [];
-
-    refresh(): void {
-        this.parseLstFile();
-        this._onDidChangeTreeData.fire(undefined);
-    }
-
-    getTreeItem(element: EstimateNode): vscode.TreeItem {
-        return element;
-    }
-
-    getChildren(element?: EstimateNode): Thenable<EstimateNode[]> {
-        if (!element) {
-            return Promise.resolve(this.estimates);
-        }
-        return Promise.resolve(element.children);
-    }
-
-    private async parseLstFile() {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            this.estimates = [];
-            return;
-        }
-
-        const modFilePath = editor.document.uri.fsPath;
-        const lstFilePath = modFilePath.replace(/\.[^.]+$/, '.lst');
-
-        if (!fs.existsSync(lstFilePath)) {
-            vscode.window.showWarningMessage('No corresponding .lst file found.');
-            this.estimates = [];
-            return;
-        }
-
-        // ✅ 새롭게 분리한 LstParser 사용
-        const parser = new LstParser(lstFilePath);
-        this.estimates = [];
-
-        // ✅ Termination Status 추가
-        const termination = parser.getTerminationStatus();
-        if (termination) {
-            this.estimates.push(new EstimateNode(`Termination Status`, Number(termination.text), null));
-        }
-
-        // ✅ OFV 추가
-        const ofv = parser.getObjectiveFunctionValue();
-        if (ofv) {
-            this.estimates.push(new EstimateNode(`Objective Function`, Number(ofv), null));
-        }
-
-        // ✅ THETA, OMEGA, SIGMA 추출
-        const estimates = parser.getEstimates();
-        if (estimates.THETA.length > 0) {
-            this.estimates.push(new EstimateNode(`THETA Estimates`, null, null, estimates.THETA.map((val, i) => new EstimateNode(`THETA ${i + 1}`, val, null))));
-        }
-        if (estimates.OMEGA.length > 0) {
-            this.estimates.push(new EstimateNode(`OMEGA Estimates`, null, null, estimates.OMEGA.map((val, i) => new EstimateNode(`OMEGA ${i + 1}`, val, null))));
-        }
-        if (estimates.SIGMA.length > 0) {
-            this.estimates.push(new EstimateNode(`SIGMA Estimates`, null, null, estimates.SIGMA.map((val, i) => new EstimateNode(`SIGMA ${i + 1}`, val, null))));
-        }
-    }
-}
-
 export class LstParser {
-    private content: string;
+    private content: string[];
 
     constructor(lstFilePath: string) {
         if (!fs.existsSync(lstFilePath)) {
             throw new Error(`LST file not found: ${lstFilePath}`);
         }
-        this.content = fs.readFileSync(lstFilePath, 'utf-8');
+        this.content = fs.readFileSync(lstFilePath, 'utf-8').split(/\r?\n/); // Windows/Linux 호환
     }
 
-    /** ✅ Termination Status 추출 */
-    getTerminationStatus(): { text: string, code: string } | null {
-        if (this.content.includes('MINIMIZATION SUCCESSFUL')) {
-            return { text: 'Minimization Successful', code: 'S' };
-        }
-        if (this.content.includes('TERMINATED')) {
-            return { text: 'Minimization Terminated', code: 'T' };
+    getTerminationStatus(): string | null {
+        for (const line of this.content) {
+            if (/^\s*MINIMIZATION SUCCESSFUL/.test(line)) return 'Minimization Successful';
+            if (/^\s*MINIMIZATION TERMINATED/.test(line)) return 'Minimization Terminated';
         }
         return null;
     }
 
-    /** ✅ OFV 값 추출 */
-    getObjectiveFunctionValue(): string | null {
-        const match = this.content.match(/(FINAL VALUE|MINIMUM VALUE) OF OBJECTIVE FUNCTION:\s*([-+]?[0-9]*\.?[0-9]+)/);
-        return match ? `OFV: ${parseFloat(match[2]).toFixed(2)}` : null;
+    getObjectiveFunctionValue(): number | null {
+        for (const line of this.content) {
+            const match = line.match(/(FINAL VALUE|MINIMUM VALUE) OF OBJECTIVE FUNCTION:\s*([-+]?[0-9]*\.?[0-9]+)/);
+            if (match) return parseFloat(match[2]);
+        }
+        return null;
     }
 
-    /** ✅ 최종 추정값(Final Estimates) 블록 추출 */
-    getEstimates(): { [key: string]: number[] } {
-        // 🔹 "FINAL PARAMETER ESTIMATE" 블록 이후의 내용만 사용
-        const finalEstimateIndex = this.content.indexOf("FINAL PARAMETER ESTIMATE");
-        if (finalEstimateIndex === -1) {
-            console.warn(`❌ FINAL PARAMETER ESTIMATE not found`);
-            return { THETA: [], OMEGA: [], SIGMA: [] };
-        }
-        const finalEstimateContent = this.content.slice(finalEstimateIndex);
-
-        // 🔹 블록을 추출하는 함수
-        const extractBlock = (label: string, startRegex: RegExp, endRegex: RegExp): number[] | null => {
-            const startMatch = finalEstimateContent.match(startRegex);
-            if (!startMatch) {
-                return null;
-            }
-
-            const startIndex = startMatch.index!;
-            const slicedContent = finalEstimateContent.slice(startIndex);
-
-            const endMatch = slicedContent.match(endRegex);
-            const blockContent = endMatch ? slicedContent.slice(0, endMatch.index) : slicedContent;
-
-            const values = blockContent.match(/[-+]?[0-9]*\.?[0-9]+E[+-]?[0-9]+/g);
-            return values ? values.map(parseFloat) : null;
-        };
-
+    getEstimates(): { THETA: number[], OMEGA: number[], SIGMA: number[] } {
         return {
-            THETA: extractBlock("THETA", /THETA - VECTOR/, /OMEGA|SIGMA|COVARIANCE|GRADIENT/) ?? [],
-            OMEGA: extractBlock("OMEGA", /OMEGA - COV MATRIX/, /SIGMA/) ?? [],
-            SIGMA: extractBlock("SIGMA", /SIGMA - COV MATRIX/, /COVARIANCE|GRADIENT|Elapsed covariance time in seconds/) ?? [],
+            THETA: this.extractValuesBetween(/^ *THETA - VECTOR/, /^ *OMEGA|SIGMA/),
+            OMEGA: this.extractValuesBetween(/^ *OMEGA - COV MATRIX/, /^ *SIGMA/),
+            SIGMA: this.extractValuesBetween(/^ *SIGMA - COV MATRIX.*$/, /^ *OMEGA|COVARIANCE|GRADIENT/)
         };
+    }
+
+    
+    /** ✅ THETA, OMEGA, SIGMA의 Standard Error (SE) 추출 */
+    getStandardErrors(): { THETA_SE: number[], OMEGA_SE: number[], SIGMA_SE: number[] } {
+        return {
+            THETA_SE: this.extractValuesBetween(/^ *THETA - VECTOR OF FIXED EFFECTS PARAMETERS/, /^ *OMEGA|SIGMA/),
+            OMEGA_SE: this.extractValuesBetween(/^ *OMEGA - COV MATRIX FOR RANDOM EFFECTS - ETAS/, /^ *SIGMA/),
+            SIGMA_SE: this.extractValuesBetween(/^ *SIGMA - COV MATRIX FOR RANDOM EFFECTS - EPSILONS/, /^ *COVARIANCE|GRADIENT/)
+        };
+    }
+
+    getEigenvalues(): { values: number[], conditionNumber?: number } | null {
+        const values = this.extractValuesBetween(/^ *EIGENVALUES/, /^ *$/);
+        if (values.length > 1) {
+            return { values, conditionNumber: values[values.length - 1] / values[0] };
+        }
+        return null;
+    }
+
+    getGradients(): number[] {
+        return this.extractValuesBetween(/^ *GRADIENT:/, /^ *$/);
+    }
+
+    getShrinkage(): number[] {
+        return this.extractValuesBetween(/^\s*ETASHRINKSD\(\%\)/, /^\s*ETASHRINKVR\(\%\)/);
+    }
+
+    getRSE(): number[] {
+        return this.extractValuesBetween(/^ *STANDARD ERROR OF ESTIMATE/, /^ *$/);
+    }
+
+    getEtabar(): number[] {
+        return this.extractValuesBetween(/^\s*ETABAR:/, /^\s*SE:/);
+    }
+
+    private extractValuesBetween(startPattern: RegExp, endPattern: RegExp): number[] {
+        let capturing = false;
+        let values: number[] = [];
+    
+        for (const line of this.content) {
+            if (startPattern.test(line)) {
+                capturing = true;
+            }
+            if (capturing) {
+                if (endPattern.test(line)) {
+                    break;
+                }
+    
+                // ✅ 공백 두 개 이상 또는 공백 + 부호가 있어야 숫자로 인식
+                const matches = line.match(/(?<=\s{2,}|\s[+-])[-+]?\d*\.?\d+(?:[Ee][-+]?\d+)?/g);
+                if (matches) {
+                    values.push(...matches.map(m => parseFloat(m.trim())));
+                }
+            }
+        }
+        return values;
     }
 }
 
 export class EstimateNode extends vscode.TreeItem {
     constructor(
         label: string,
-        public estimate: number | null,
-        public standardError: number | null,
+        public estimate: number | string | null,
         public children: EstimateNode[] = []
     ) {
-        super(label, children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-        this.description = this.estimate !== null
-            ? `Estimate: ${this.estimate.toFixed(3)}${this.standardError !== null ? ` (SE: ${this.standardError.toFixed(3)})` : ''}`
-            : '';
-
+        super(
+            label,
+            children.length > 0 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
+        );
+        this.description = estimate !== null ? `${estimate}` : '';
         this.tooltip = this.description;
-        this.command = children.length === 0 ? {
-            command: 'extension.revealEstimateInLst',
-            title: 'Reveal in LST',
-            arguments: [this.label]
-        } : undefined;
+    }
+}
+
+export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
+    public static readonly viewType = 'estimatesView';
+
+    private _view?: vscode.WebviewView;
+    private _parser?: LstParser;
+
+    constructor(private readonly context: vscode.ExtensionContext) {}
+
+    resolveWebviewView(
+        webviewView: vscode.WebviewView,
+        context: vscode.WebviewViewResolveContext,
+        _token: vscode.CancellationToken
+    ) {
+        this._view = webviewView;
+        webviewView.webview.options = { enableScripts: true };
+        this.updateTable();
+    }
+
+    /** ✅ 현재 활성화된 파일을 기반으로 테이블 갱신 */
+    async updateTable() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return;
+
+        const lstFilePath = editor.document.uri.fsPath.replace(/\.[^.]+$/, '.lst');
+        if (!fs.existsSync(lstFilePath)) {
+            vscode.window.showWarningMessage(`No corresponding .lst file found for ${editor.document.fileName}`);
+            return;
+        }
+
+        this._parser = new LstParser(lstFilePath);
+        const tableHtml = this.generateTableHtml();
+
+        if (this._view) {
+            this._view.webview.html = this.getWebviewContent(tableHtml, lstFilePath);
+        }
+    }
+
+    /** ✅ 데이터를 테이블로 변환 (SE 포함) */
+    private generateTableHtml(): string {
+        if (!this._parser) return '<p>No data available</p>';
+
+        const estimates = this._parser.getEstimates();
+        const standardErrors = this._parser.getStandardErrors();
+        const eigen = this._parser.getEigenvalues();
+        const shrinkage = this._parser.getShrinkage();
+        const rse = this._parser.getRSE();
+        const etabar = this._parser.getEtabar();
+        const objFunc = this._parser.getObjectiveFunctionValue();
+
+        const formatRow = (label: string, values: number[], seValues: number[]) =>
+            `<tr>
+                <td>${label}</td>
+                ${values.map((v, i) => `<td>${v.toFixed(3)}</td><td>${seValues[i] ? `±${seValues[i].toFixed(3)}` : 'N/A'}</td>`).join('')}
+            </tr>`;
+
+        return `
+            <table>
+                <thead>
+                    <tr><th>Parameter</th><th>Estimate 1</th><th>SE 1</th><th>Estimate 2</th><th>SE 2</th><th>Estimate 3</th><th>SE 3</th></tr>
+                </thead>
+                <tbody>
+                    ${formatRow('THETA', estimates.THETA, standardErrors.THETA_SE)}
+                    ${formatRow('OMEGA', estimates.OMEGA, standardErrors.OMEGA_SE)}
+                    ${formatRow('SIGMA', estimates.SIGMA, standardErrors.SIGMA_SE)}
+                    ${formatRow('Eigenvalues', eigen?.values || [], [])}
+                    ${formatRow('Shrinkage', shrinkage, [])}
+                    ${formatRow('RSE', rse, [])}
+                    ${formatRow('ETABAR', etabar, [])}
+                    <tr><td>Objective Function</td><td colspan="6">${objFunc ? objFunc.toFixed(3) : 'N/A'}</td></tr>
+                </tbody>
+            </table>
+        `;
+    }
+
+    /** ✅ WebView HTML 렌더링 */
+    private getWebviewContent(tableHtml: string, filePath: string): string {
+        return `
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Estimates Table</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 10px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background-color: #f4f4f4; }
+                    h3 { margin-bottom: 5px; font-size: 14px; color: #666; }
+                </style>
+            </head>
+            <body>
+                <h3>File: ${filePath}</h3>
+                ${tableHtml}
+            </body>
+            </html>
+        `;
     }
 }
