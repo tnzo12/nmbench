@@ -3,13 +3,14 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as util from 'util';
 import * as childProcess from 'child_process';
-import { EstimatesViewerProvider } from './estview';
+import { EstimatesWebViewProvider } from './estview';
 import { ModFile, ModFolder, ModFileViewerProvider } from './modview';
 import { showModFileContextMenu, showModFileContextMenuNONMEM, showRScriptCommand } from './commands';
 import { readNmTable, readNmTable_heatmap, readNmTable_ext } from './tblread';
 import { getWebviewContent, getWebviewContent_plotly, getWebviewContent_heatmap_plotly, getWebviewContent_table, getWebviewContent_hist } from './webview';
 
 const readFile = util.promisify(fs.readFile);
+
 
 export function activate(context: vscode.ExtensionContext) {
     const modFileViewerProvider = new ModFileViewerProvider();
@@ -395,33 +396,13 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
 
-    const estimatesViewerProvider = new EstimatesViewerProvider();
-    vscode.window.createTreeView('estimatesViewer', { treeDataProvider: estimatesViewerProvider });
-
+    const provider = new EstimatesWebViewProvider(context);
     context.subscriptions.push(
-        vscode.commands.registerCommand('extension.refreshEstimatesViewer', () => estimatesViewerProvider.refresh()),
-
-        vscode.commands.registerCommand('extension.revealEstimateInLst', async (paramLabel: string) => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) { return; }
-
-            const modFilePath = editor.document.uri.fsPath;
-            const lstFilePath = modFilePath.replace(/\.[^.]+$/, '.lst');
-            if (!fs.existsSync(lstFilePath)) { return; }
-
-            const doc = await vscode.workspace.openTextDocument(lstFilePath);
-            const lstEditor = await vscode.window.showTextDocument(doc);
-            const text = doc.getText();
-            const position = text.indexOf(paramLabel);
-
-            if (position !== -1) {
-                const pos = doc.positionAt(position);
-                lstEditor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.AtTop);
-            }
-        })
+        vscode.window.registerWebviewViewProvider(EstimatesWebViewProvider.viewType, provider)
     );
 
-    vscode.window.onDidChangeActiveTextEditor(() => estimatesViewerProvider.refresh());
+    vscode.window.onDidChangeActiveTextEditor(() => provider.updateTable());
+    vscode.workspace.onDidSaveTextDocument(() => provider.updateTable());
 }
 
 
