@@ -2,7 +2,7 @@
 `nmbench` is a package that supports Nonlinear mixed effect modeling with `NONMEM`, majorly focusing on utilizing `PsN` (Perl-Speaks-NONMEM) commands. It adds addtional viewer below the genuine explorer that provides filtered shows ***'.mod'*** and ***'.ctl'*** file in directory, and adds necessary GUI elements in editor windows
 
 ## Features
-nmbench provides following features:
+`nmbench` provides following features:
 
 ### Viewer functions: **NMBENCH: BROWSER** (Basically in the primary sidebar)
 * Both viewer functions can be moved onto secondary sidebar, you can enable/disable by *View > Appearance Secondary Side Bar*
@@ -55,11 +55,11 @@ The extension is made in follwing system settings:
 * PsN (Perl-Speaks-NONMEM, version 5.3.1)
 
 * R (v4.4.0)
-* R packages (xpose, xpose4, reshape2, dplyr)
+* R packages (xpose, xpose4, reshape2, dplyr, ggpubr...)
 
 > Be sure to add needed PATHs in system environment variable to call the R, PsN and NONMEM functions. For example 'C:\Program Files\R\R-4.4.2\bin' for R, 'C:\PsN-5.5.0\strawberry\perl\bin' for PsN. (Check your software installtion path!)
 
-Optional:
+Optional (recommended):
 * VS Code extension - `NMTRAN` (by Viktor Rognås)
 * For MacOS, it is recommanded to use homebrew for R
 * For Windows, in order to use `Run R script` function, environment variable should be added in PATH. For example, "C:\Program Files\R\R-4.4.0\bin" must be in system PATH
@@ -73,7 +73,7 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.1.1 - 0.1.2 (Hotfix)
+### 0.1.1 - 0.1.3 (Hotfix)
 * Corrected estimates viewer algorithm
 ### 0.1.0
 Explorer renamed

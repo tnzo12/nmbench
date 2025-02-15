@@ -927,7 +927,7 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                         
                         document.querySelectorAll("tr[data-estimate]").forEach(function(row) {
                             const data = row.getAttribute("data-estimate");
-                            if (!data || data.trim().length === 0) {
+                            if (!data || data.trim().length === 0 || data === "undefined") {
                                 row.style.display = "none";
                             } else {
                                 const estVal = parseFloat(data);
@@ -939,7 +939,6 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                     });
                 </script>
             `;
-        
             htmlSections.push(methodHtml);
         }
         
