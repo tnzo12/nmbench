@@ -129,6 +129,15 @@
                 "key": "alt+R"
             }
         ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "estimates",
+                    "title": "Estimates",
+                    "icon": "icon.png"
+                }
+            ]
+        },
         "views": {
             "explorer": [
                 {
@@ -136,8 +145,9 @@
                     "name": "nmbench: browser"
                 },
                 {
-                    "id": "estimatesViewer",
-                    "name": "nmbench: Estimates"
+                    "id": "estimatesView",
+                    "name": "nmbench: Estimates",
+                    "type": "webview"
                 }
             ]
         },
