@@ -57,7 +57,7 @@ The extension is made in follwing system settings:
 * R (v4.4.0)
 * R packages (xpose, xpose4, reshape2, dplyr)
 
-> Be sure to add needed PATHs in system environment variable to call the R/PsN/NONMEM functions
+> Be sure to add needed PATHs in system environment variable to call the R, PsN and NONMEM functions. For example 'C:\Program Files\R\R-4.4.2\bin' for R, 'C:\PsN-5.5.0\strawberry\perl\bin' for PsN. (Check your software installtion path!)
 
 Optional:
 * VS Code extension - `NMTRAN` (by Viktor Rognås)
@@ -73,7 +73,7 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.1.1 (Hotfix)
+### 0.1.1 - 0.1.2 (Hotfix)
 * Corrected estimates viewer algorithm
 ### 0.1.0
 Explorer renamed
