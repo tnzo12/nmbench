@@ -125,9 +125,10 @@ export class LstParser {
 
         // parseAll() 함수 시작 부분에 정규표현식을 미리 정의
         const reNonmemVersion = /NONLINEAR MIXED EFFECTS MODEL PROGRAM \(NONMEM\) VERSION 7/;
-        const reTheta = /^\$THETA/i;
-        const reOmega = /^\$OMEGA/i;
-        const reSigma = /^\$SIGMA/i;
+        const reTheta = /^\$THETA(?:\s|$)/;
+        const reOmega = /^\$OMEGA(?:\s|$)/;
+        const reSigma = /^\$SIGMA(?:\s|$)/;
+        const reOther = /^\$(THETA|OMEGA)(R|I|P)|^\$LEVEL/;
         const reInitialTheta = /INITIAL ESTIMATE OF THETA/;
         const reInitialOmega = /INITIAL ESTIMATE OF OMEGA/;
         const reInitialSigma = /INITIAL ESTIMATE OF SIGMA/;
@@ -164,7 +165,12 @@ export class LstParser {
                 omegaDefArea = false;
                 sigmaDefArea = true;
             }
-    
+            // All stop when other variations of THETA/OMEGA/SIGMA detected
+            if (reOther.test(line)) {
+                thetaDefArea = false;
+                omegaDefArea = false;
+                sigmaDefArea = false;
+            }
             // 초기 추정치 영역 감지
             if (reInitialTheta.test(line)) {
                 initThetaArea = true;
@@ -967,7 +973,9 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                     td:nth-child(1) {
                         font-weight: bold;
                     }
-                    td:nth-child(2),
+                    td:nth-child(2) {
+                        text-align: center;
+                    }
                     td:nth-child(3) {
                         text-align: left;
                     }
