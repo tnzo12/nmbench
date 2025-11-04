@@ -19,6 +19,34 @@ export function activate(context: vscode.ExtensionContext) {
         canSelectMany: true // 전체 트리에 다중 선택 허용
     });
 
+    // 상태 메시지 갱신 함수: 토글 상태에 따라 뷰 상단에 안내 문구 표시
+    const updateViewMessage = () => {
+      const hide = vscode.workspace
+        .getConfiguration('nmbench')
+        .get<boolean>('modFileViewer.hideModelFitDirs', false);
+      treeView.message = hide
+        ? "Hiding: folders with 'modelfit_dir'"
+        : "Showing: all folders";
+    };
+
+      // 토글 커맨드: 설정값 토글 후 새로고침
+  const toggleHide = vscode.commands.registerCommand('extension.toggleHideModelFitDirs', async () => {
+    const config = vscode.workspace.getConfiguration('nmbench');
+    const key = 'modFileViewer.hideModelFitDirs';
+    const current = config.get<boolean>(key, false);
+    await config.update(key, !current, vscode.ConfigurationTarget.Global);
+    vscode.commands.executeCommand('extension.refreshModFileViewer');
+  });
+  context.subscriptions.push(toggleHide);
+
+  // 설정 변경 감지 → 자동 새로고침
+  const disp = vscode.workspace.onDidChangeConfiguration(e => {
+    if (e.affectsConfiguration('nmbench.modFileViewer.hideModelFitDirs')) {
+      vscode.commands.executeCommand('extension.refreshModFileViewer');
+    }
+  });
+  context.subscriptions.push(disp);
+
     context.subscriptions.push(
         vscode.commands.registerCommand('extension.openModFile', (uri: vscode.Uri) => {
             vscode.workspace.openTextDocument(uri).then(doc => {
@@ -28,6 +56,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('extension.refreshModFileViewer', () => {
             modFileViewerProvider.refresh();
+            updateViewMessage();
         }),
 
         vscode.commands.registerCommand('extension.showModFileContextMenu', (uri: vscode.Uri) => {
@@ -403,6 +432,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.window.onDidChangeActiveTextEditor(() => provider.updateTable());
     vscode.workspace.onDidSaveTextDocument(() => provider.updateTable());
+
+    updateViewMessage();
 }
 
 

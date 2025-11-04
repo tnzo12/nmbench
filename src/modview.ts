@@ -36,7 +36,16 @@ export class ModFileViewerProvider implements vscode.TreeDataProvider<ModFile | 
                         modFiles.push(modFile);
                     }
                 }
-                return [...folders, ...modFiles];
+                // Toggle-based hiding of folders whose name includes 'modelfit_dir' (case-insensitive)
+                const hide = vscode.workspace
+                    .getConfiguration('nmbench')
+                    .get<boolean>('modFileViewer.hideModelFitDirs', false);
+                const filteredFolders = hide
+                    ? folders.filter(f =>
+                        !path.basename(f.uri.fsPath).toLowerCase().includes('modelfit_dir')
+                      )
+                    : folders;
+                return [...filteredFolders, ...modFiles];
             } catch (err) {
                 console.error('Failed to read directory:', err);
                 return [];

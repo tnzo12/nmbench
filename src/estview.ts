@@ -125,10 +125,12 @@ export class LstParser {
 
         // parseAll() 함수 시작 부분에 정규표현식을 미리 정의
         const reNonmemVersion = /NONLINEAR MIXED EFFECTS MODEL PROGRAM \(NONMEM\) VERSION 7/;
-        const reTheta = /^\$THETA(?:\s|$)/;
-        const reOmega = /^\$OMEGA(?:\s|$)/;
-        const reSigma = /^\$SIGMA(?:\s|$)/;
-        const reOther = /^\$(THETA|OMEGA)(R|I|P)|^\$LEVEL/;
+        // Strict section entry matchers: match $THETA / $OMEGA / $SIGMA only when not followed by letters/underscores/digits
+        const reTheta = /^\$THETA(?![A-Z0-9_])/i;
+        const reOmega = /^\$OMEGA(?![A-Z0-9_])/i;
+        const reSigma = /^\$SIGMA(?![A-Z0-9_])/i;
+        // Variants that should terminate any current THETA/OMEGA/SIGMA definition area (e.g., $THETAI, $THETAR, etc.)
+        const reOther = /^(?:\$(?:THETA(?:R|I|P)|OMEGA(?:R|I|P)|SIGMA(?:R|I|P))\b|\$LEVEL)/i;
         const reInitialTheta = /INITIAL ESTIMATE OF THETA/;
         const reInitialOmega = /INITIAL ESTIMATE OF OMEGA/;
         const reInitialSigma = /INITIAL ESTIMATE OF SIGMA/;
@@ -988,6 +990,59 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
             </head>
             <body>
                 ${htmlSections.join('\n')}
+                <div id="cv-controls" style="background: transparent; padding: 6px 8px; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px;">                  <strong>Ω CV mode:</strong>
+                  <label><input type="radio" name="cvMode" value="off" checked> Off</label>
+                  <label><input type="radio" name="cvMode" value="sqrt"> √w²</label>
+                  <label><input type="radio" name="cvMode" value="lognorm"> lognorm</label>
+                  <span style="color:#888;">Applies to diagonal OMEGA only</span>
+                </div>
+                <script>
+                (function () {
+                  function applyCv(mode) {
+                    var targets = document.querySelectorAll('.est-text[data-matrix="OMEGA"][data-diag="1"]');
+                    targets.forEach(function (el) {
+                      var base = el.getAttribute('data-base') || '';
+                      var w2str = el.getAttribute('data-w2');
+                      var w2 = w2str ? parseFloat(w2str) : NaN;
+                      var suffix = '';
+                      if (mode === 'sqrt') {
+                        if (isFinite(w2) && w2 >= 0) {
+                          var cv = Math.sqrt(w2) * 100;
+                          suffix = '  —  CV ' + cv.toFixed(1) + '%';
+                        }
+                      } else if (mode === 'lognorm') {
+                        if (isFinite(w2)) {
+                          var tmp = Math.exp(w2) - 1;
+                          if (tmp < 0) tmp = 0;
+                          var cv2 = Math.sqrt(tmp) * 100;
+                          suffix = '  —  CV ' + cv2.toFixed(1) + '%';
+                        }
+                      }
+                      el.textContent = base + suffix;
+                    });
+                  }
+                  // cache base text once after load
+                  function cacheBase() {
+                    var all = document.querySelectorAll('.est-text');
+                    all.forEach(function (el) {
+                      if (!el.getAttribute('data-base')) {
+                        el.setAttribute('data-base', el.textContent || '');
+                      }
+                    });
+                  }
+                  document.addEventListener('DOMContentLoaded', function () {
+                    cacheBase();
+                    var radios = document.querySelectorAll('input[name="cvMode"]');
+                    radios.forEach(function (r) {
+                      r.addEventListener('change', function (e) {
+                        var mode = e.target && e.target.value ? e.target.value : 'off';
+                        applyCv(mode);
+                      });
+                    });
+                    applyCv('off'); // initial
+                  });
+                })();
+                </script>
             </body>
             <h6>
                 <li>( ): Relative Standard Error %</li>
@@ -1113,7 +1168,12 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                 rows += `<tr${dataAttr}>
                             <td>${labelPrefix}(${i+1},${j+1})</td>
                             <td style="position: relative; ${gradientBackground}">
-                                <span style="position: relative; z-index: 1; ${additionalTextStyle}">
+                                <span
+                                    class="est-text"
+                                    data-matrix="${labelPrefix}"
+                                    data-diag="${i === j ? '1' : '0'}"
+                                    ${labelPrefix === 'OMEGA' && i === j && isFinite(val) ? `data-w2="${val}"` : ''}
+                                    style="position: relative; z-index: 1; ${additionalTextStyle}">
                                     ${estSeFormatted}${additionalIcon}
                                 </span>
                             </td>
