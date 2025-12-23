@@ -10,7 +10,7 @@
     ],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.1.3",
+    "version": "0.1.5",
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -18,6 +18,12 @@
     "main": "./out/extension.js",
     "contributes": {
         "commands": [
+            {
+                "command": "extension.toggleHideModelFitDirs",
+                "title": "Hide “modelfit_dir” folders",
+                "category": "nmbench",
+                "icon": "$(eye)"
+            },
             {
                 "command": "extension.readNmTableAndPlot",
                 "title": "Data inspection",
@@ -142,7 +148,7 @@
             "explorer": [
                 {
                     "id": "modFileViewer",
-                    "name": "nmbench: browser"
+                    "name": "nmbench: Browser"
                 },
                 {
                     "id": "estimatesView",
@@ -150,6 +156,16 @@
                     "type": "webview"
                 }
             ]
+        },
+        "configuration": {
+            "title": "nmbench",
+            "properties": {
+                "nmbench.modFileViewer.hideModelFitDirs": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Hide folders whose name includes 'modelfit_dir' in the Mod File Viewer."
+                }
+            }
         },
         "menus": {
             "view/item/context": [
@@ -184,6 +200,12 @@
                     "command": "extension.refreshModFileViewer",
                     "when": "view == modFileViewer",
                     "group": "navigation"
+                },
+                {
+                    "command": "extension.toggleHideModelFitDirs",
+                    "when": "view == modFileViewer",
+                    "group": "navigation",
+                    "toggled": "config.nmbench.modFileViewer.hideModelFitDirs"
                 }
             ],
             "editor/title": [
@@ -239,8 +261,8 @@
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src --ext ts",
         "test": "vscode-test"
-      },
-      "devDependencies": {
+    },
+    "devDependencies": {
         "@types/vscode": "^1.85.0",
         "@types/mocha": "^10.0.6",
         "@types/node": "18.x",
@@ -250,7 +272,7 @@
         "typescript": "^5.4.5",
         "@vscode/test-cli": "^0.0.9",
         "@vscode/test-electron": "^2.3.9"
-      },
+    },
     "license": "https://github.com/tnzo12/nmbench/blob/main/LICENSE",
     "bugs": {
         "url": "https://github.com/tnzo12/nmbench/issues",
