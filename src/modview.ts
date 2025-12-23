@@ -146,11 +146,25 @@ export class ModFile extends vscode.TreeItem {
         if (content.includes('PARAMETER ESTIMATE IS NEAR ITS BOUNDARY')) {
             statuses.push({ text: 'w Boundary Error', code: 'B' });
         }
-        const covarianceStep = content.includes('Elapsed covariance  time in seconds');
         const matrixSingular = content.includes('MATRIX ALGORITHMICALLY');
+        const covOmitted = /COVARIANCE STEP OMITTED:\s*YES/i.test(content);
+        const covNotSuccessful = /COVARIANCE STEP NOT SUCCESSFUL/i.test(content);
+        const covSuccess = /COVARIANCE STEP SUCCESSFUL|COVARIANCE STEP COMPLETED/i.test(content);
+        const covWarning = /COVARIANCE STEP WARNING|COVARIANCE STEP WITH WARNING/i.test(content);
+        const covMatrixSeen = /COVARIANCE MATRIX OF ESTIMATE(?!.*INVERSE)/i.test(content);
+        const covElapsed = /Elapsed\s*covariance\s*time\s*in\s*seconds:/i.test(content);
+        const covSubstituted = /[RS] MATRIX SUBSTITUTED:\s*YES/i.test(content);
+        const covStepOkOrWarning = !covOmitted && covMatrixSeen && (
+            covSuccess ||
+            covWarning ||
+            covElapsed ||
+            (covSubstituted && covMatrixSeen) ||
+            (covNotSuccessful && covSubstituted && covMatrixSeen)
+        );
+
         if (matrixSingular) {
             statuses.push({ text: 'w Matrix Error', code: 'M' });
-        } else if (covarianceStep) {
+        } else if (covStepOkOrWarning) {
             statuses.push({ text: 'w Covariance Step done', code: 'C' });
         }
 

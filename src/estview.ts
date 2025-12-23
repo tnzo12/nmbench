@@ -33,6 +33,7 @@ export interface ParseResult {
     estimates: Record<string, EstimatesResult>;
     se_estimates: Record<string, EstimatesResult>;
     term_res: Record<string, TermResults>;
+    sumo: Record<string, SumoSummary>;
     ofvs: Record<string, string>;
     cov_mat: Record<string, string>;
     est_times: Record<string, string>;
@@ -42,6 +43,11 @@ export interface ParseResult {
     sim_info: string;
     gradients: number[];
     initEstimates: Record<string, EstimatesResult>; // ✅ 초기 추정치 + 라벨 포함
+}
+
+export interface SumoSummary {
+    lines: Array<{ label: string; status: string }>;
+    details: string[];
 }
 
 export class LstParser {
@@ -110,6 +116,7 @@ export class LstParser {
         const estimates: Record<string, EstimatesResult> = {};
         const se_estimates: Record<string, EstimatesResult> = {};
         const term_res: Record<string, TermResults> = {};
+        const sumo: Record<string, SumoSummary> = {};
         const ofvs: Record<string, string> = {};
         const cov_mat: Record<string, string> = {};
         const est_times: Record<string, string> = {};
@@ -123,6 +130,223 @@ export class LstParser {
         let term_text: string[] = [];
         let times: string[] = [];
 
+        const correlationLimit = 0.9;
+        const conditionNumberLimit = 1000;
+
+        const makeSumoState = () => ({
+            touched: false,
+            sawMinimization: false,
+            sawStochastic: false,
+            minSuccess: false,
+            minTerminated: false,
+            minSeen: false,
+            estOmitted: false,
+            saemStochastic: undefined as 'completed' | 'not_completed' | undefined,
+            saemReduced: undefined as 'completed' | 'not_completed' | undefined,
+            roundingInfo: false,
+            roundingErrors: false,
+            zeroGradInfo: false,
+            zeroGradCount: undefined as number | undefined,
+            finalZeroGradInfo: false,
+            finalZeroGradCount: undefined as number | undefined,
+            hessInfo: false,
+            hessResetCount: undefined as number | undefined,
+            nearBoundaryInfo: false,
+            nearBoundary: false,
+            covStepRun: false,
+            covStepOmitted: false,
+            covStepSuccess: undefined as boolean | undefined,
+            covWarnings: false,
+            covTimeSeen: false,
+            covRequested: false,
+            covMatrixSeen: false,
+            covSubstituted: false,
+            condNo: undefined as number | undefined,
+            corrPairs: [] as Array<{ left: string; right: string; value: number }>,
+            corrChecked: false
+        });
+
+        const sumoStates: Record<string, ReturnType<typeof makeSumoState>> = {};
+        const getSumoState = (method: string) => {
+            if (!sumoStates[method]) {
+                sumoStates[method] = makeSumoState();
+            }
+            return sumoStates[method];
+        };
+        let sumoState = getSumoState(est_method);
+        let corrArea = false;
+        let corrType: 'theta' | 'omega' | 'sigma' | 'unknown' = 'unknown';
+        let corrRowCount = 0;
+
+        const getCorrLabels = (type: 'theta' | 'omega' | 'sigma' | 'unknown') => {
+            if (type === 'theta') { return initThetaLabels; }
+            if (type === 'omega') { return initOmegaLabels; }
+            if (type === 'sigma') { return initSigmaLabels; }
+            return [];
+        };
+        const getCorrPrefix = (type: 'theta' | 'omega' | 'sigma' | 'unknown') => {
+            if (type === 'theta') { return 'TH'; }
+            if (type === 'omega') { return 'OM'; }
+            if (type === 'sigma') { return 'SI'; }
+            return 'P';
+        };
+        const formatCorrLabel = (index: number, labels: string[], prefix: string) => {
+            const label = labels[index - 1] ? labels[index - 1].trim() : '';
+            return label ? `${index}.${label}` : `${prefix}${index}`;
+        };
+        const finalizeSumoState = (state: typeof sumoState): SumoSummary => {
+            const lines: Array<{ label: string; status: string }> = [];
+            const details: string[] = [];
+
+            if (state.sawStochastic) {
+                if (state.saemStochastic) {
+                    const ok = state.saemStochastic === 'completed';
+                    lines.push({
+                        label: `Stochastic portion was ${ok ? '' : 'not '}completed`.trim(),
+                        status: ok ? 'OK' : 'ERROR'
+                    });
+                } else {
+                    lines.push({ label: 'Stochastic portion information not read', status: '-' });
+                }
+                if (state.saemReduced) {
+                    const ok = state.saemReduced === 'completed';
+                    lines.push({
+                        label: `Reduced stochastic portion was ${ok ? '' : 'not '}completed`.trim(),
+                        status: ok ? 'OK' : 'ERROR'
+                    });
+                } else {
+                    lines.push({ label: 'Reduced stochastic portion information not read', status: '-' });
+                }
+            } else if (state.minSuccess) {
+                lines.push({ label: 'Successful minimization', status: 'OK' });
+            } else if (state.minTerminated || state.minSeen) {
+                lines.push({ label: 'Termination problems', status: 'ERROR' });
+            } else if (state.estOmitted) {
+                lines.push({ label: 'Estimation step omitted', status: '-' });
+            } else if (state.sawMinimization) {
+                lines.push({ label: 'Minimization information not read', status: '-' });
+            } else {
+                lines.push({ label: 'Minimization information not read', status: '-' });
+            }
+
+            if (state.roundingInfo) {
+                lines.push({ label: state.roundingErrors ? 'Rounding errors' : 'No rounding errors', status: state.roundingErrors ? 'ERROR' : 'OK' });
+            } else {
+                lines.push({ label: 'Rounding error information not read', status: '-' });
+            }
+
+            if (state.zeroGradInfo && typeof state.zeroGradCount === 'number') {
+                if (state.zeroGradCount === 0) {
+                    lines.push({ label: 'No zero gradients', status: 'OK' });
+                } else {
+                    lines.push({ label: `Zero gradients found ${state.zeroGradCount} times`, status: 'WARNING' });
+                }
+            } else {
+                lines.push({ label: 'Zero gradient information not read', status: '-' });
+            }
+
+            if (state.finalZeroGradInfo && typeof state.finalZeroGradCount === 'number') {
+                if (state.finalZeroGradCount === 0) {
+                    lines.push({ label: 'No final zero gradients', status: 'OK' });
+                } else {
+                    lines.push({ label: 'Final zero gradients', status: 'ERROR' });
+                }
+            } else {
+                lines.push({ label: 'Final zero gradient information not read', status: '-' });
+            }
+
+            if (state.hessInfo && typeof state.hessResetCount === 'number') {
+                if (state.hessResetCount === 0) {
+                    lines.push({ label: 'Hessian not reset', status: 'OK' });
+                } else {
+                    lines.push({ label: `Hessian reset ${state.hessResetCount} times`, status: 'WARNING' });
+                }
+            } else {
+                lines.push({ label: 'Hessian information not read', status: '-' });
+            }
+
+            if (state.nearBoundaryInfo) {
+                lines.push({
+                    label: state.nearBoundary ? 'Parameter(s) / ETA-/EPS-correlation(s) near boundary' : 'No parameter near boundary',
+                    status: state.nearBoundary ? 'WARNING' : 'OK'
+                });
+            } else {
+                lines.push({ label: 'Boundary information not read', status: '-' });
+            }
+
+            const covMissingAfterTermination = (state.minTerminated || state.minSeen) && !state.covTimeSeen;
+            const hasCovInfo =
+                state.covRequested ||
+                state.covStepRun ||
+                state.covStepOmitted ||
+                state.covTimeSeen ||
+                state.covStepSuccess !== undefined ||
+                state.covWarnings;
+
+            if (!hasCovInfo) {
+                details.push('No covariance step run.');
+                return { lines, details };
+            }
+
+            if (state.covStepRun && !state.covMatrixSeen) {
+                lines.push({ label: 'Covariance step', status: 'ERROR' });
+                return { lines, details };
+            }
+
+            if (state.covStepOmitted) {
+                if (covMissingAfterTermination) {
+                    lines.push({ label: 'Covariance step', status: 'ERROR' });
+                } else {
+                    lines.push({ label: 'Covariance step', status: 'OMITTED' });
+                }
+            } else if (state.covStepRun) {
+                if (covMissingAfterTermination) {
+                    lines.push({ label: 'Covariance step', status: 'ERROR' });
+                } else if (state.covStepSuccess === false) {
+                    if (state.covSubstituted && state.covMatrixSeen) {
+                        lines.push({ label: 'Covariance step', status: 'WARNING' });
+                    } else {
+                        lines.push({ label: 'Covariance step', status: 'ERROR' });
+                    }
+                } else if (state.covWarnings) {
+                    lines.push({ label: 'Covariance step', status: 'WARNING' });
+                } else {
+                    lines.push({ label: 'Covariance step', status: 'OK' });
+                }
+
+                if (typeof state.condNo === 'number') {
+                    lines.push({
+                        label: state.condNo < conditionNumberLimit ? 'Condition number' : 'Large condition number',
+                        status: state.condNo < conditionNumberLimit ? 'OK' : 'WARNING'
+                    });
+                }
+
+                if (state.corrChecked) {
+                    if (state.corrPairs.length === 0) {
+                        lines.push({ label: 'Correlations', status: 'OK' });
+                    } else {
+                        lines.push({ label: 'Large correlations between parameter estimates found', status: 'WARNING' });
+                        for (const pair of state.corrPairs) {
+                            const left = `${pair.left} - ${pair.right}`.padEnd(24, ' ');
+                            const value = formatCorrelationValue(pair.value).padStart(8, ' ');
+                            details.push(`\t${left}${value}`);
+                        }
+                    }
+                }
+            } else {
+                if (covMissingAfterTermination) {
+                    lines.push({ label: 'Covariance step', status: 'ERROR' });
+                } else {
+                    lines.push({ label: 'Covariance step', status: '-' });
+                }
+                if (!state.covRequested) {
+                    details.push('No covariance step run.');
+                }
+            }
+
+            return { lines, details };
+        };
+
         // parseAll() 함수 시작 부분에 정규표현식을 미리 정의
         const reNonmemVersion = /NONLINEAR MIXED EFFECTS MODEL PROGRAM \(NONMEM\) VERSION 7/;
         // Strict section entry matchers: match $THETA / $OMEGA / $SIGMA only when not followed by letters/underscores/digits
@@ -135,9 +359,23 @@ export class LstParser {
         const reInitialOmega = /INITIAL ESTIMATE OF OMEGA/;
         const reInitialSigma = /INITIAL ESTIMATE OF SIGMA/;
         const reCovEst = /(?:\$(?:COV|EST|TAB)|0SIGMA CONSTRAINED|0COVARIANCE)/i;
+        const reCovRequest = /^\$COV(?:ARIANCE)?\b/i;
         const reMeth = /#METH\:/;
         const reTerm = /#TERM\:/;
-    
+        const reCorrMatrix = /CORRELATION MATRIX/i;
+        const reZeroGrad = /ZERO GRADIENTS?\s*[:=]?\s*(\d+)/i;
+        const reFinalZeroGrad = /FINAL ZERO GRADIENTS?\s*[:=]?\s*(\d+)/i;
+        const reHessReset = /HESSIAN RESET\s*[:=]?\s*(\d+)/i;
+        const reResetHess = /RESET HESSIAN\s*[:=]?\s*(\d+)?/i;
+        const reEstOmitted = /ESTIMATION STEP OMITTED:\s*(YES|NO)/i;
+        const reCovOmitted = /COVARIANCE STEP OMITTED:\s*(YES|NO)/i;
+        const reSigDigits = /SIGDIGITS (?:ETAHAT|GRADIENTS)/i;
+        const reCovSubR = /R MATRIX SUBSTITUTED:\s*YES/i;
+        const reCovSubS = /S MATRIX SUBSTITUTED:\s*YES/i;
+        const reNegEigen = /Number of Negative Eigenvalues in Matrix\s*=\s*(\d+)/i;
+        const reSaemStochastic = /^\s*STOCHASTIC PORTION WAS/i;
+        const reSaemReduced = /^\s*REDUCED STOCHASTIC PORTION WAS/i;
+
         // 각 줄을 순회하며 파싱 수행
         for (let i = 0; i < this.content.length; i++) {
             let line = this.content[i];
@@ -334,7 +572,12 @@ export class LstParser {
             }
             // --- Estimation method 처리 및 기타 ---
             if (reMeth.test(line)) {
-                est_method = `#${count_est_methods} ` + clean_estim_method(line);
+                const newMethod = `#${count_est_methods} ` + clean_estim_method(line);
+                if (est_method === 'Method' && sumoStates['Method']?.touched && !sumoStates[newMethod]) {
+                    sumoStates[newMethod] = sumoStates['Method'];
+                }
+                est_method = newMethod;
+                sumoState = getSumoState(est_method);
                 cov_mat[est_method] = "N";
                 bnd[est_method] = "N";
                 count_est_methods++;
@@ -343,14 +586,17 @@ export class LstParser {
             
             if ((nm6 === 1) && line.match(/CONDITIONAL ESTIMATES USED/) && line.match(/YES/)) {
                 est_method = `#${count_est_methods} First Order Conditional Estimation`;
+                sumoState = getSumoState(est_method);
                 count_est_methods++;
             }
             if ((nm6 === 1) && line.match(/LAPLACIAN OBJ. FUNC./) && line.match(/YES/)) {
                 est_method = `#${count_est_methods} Laplacian Conditional Estimation`;
+                sumoState = getSumoState(est_method);
                 count_est_methods++;
             }
             if ((nm6 === 1) && line.match(/EPS-ETA INTERACTION/) && line.match(/YES/)) {
                 est_method += `#${count_est_methods} With Interaction`;
+                sumoState = getSumoState(est_method);
                 count_est_methods++;
             }
         
@@ -361,7 +607,149 @@ export class LstParser {
             if (reTerm.test(line)) {
                 term_area = 1;
             }
-        
+
+            const estOmitMatch = line.match(reEstOmitted);
+            if (estOmitMatch) {
+                const omitted = estOmitMatch[1].toUpperCase() === 'YES';
+                sumoState.estOmitted = omitted;
+                if (!omitted) {
+                    sumoState.minSeen = true;
+                }
+                sumoState.sawMinimization = true;
+                sumoState.touched = true;
+            }
+            if (reCovRequest.test(line)) {
+                sumoState.covRequested = true;
+                sumoState.touched = true;
+            }
+            const covOmitMatch = line.match(reCovOmitted);
+            if (covOmitMatch) {
+                const omitted = covOmitMatch[1].toUpperCase() === 'YES';
+                sumoState.covStepOmitted = omitted;
+                if (!omitted) {
+                    sumoState.covStepRun = true;
+                }
+                sumoState.touched = true;
+            }
+            if (reSaemStochastic.test(line)) {
+                const isNot = /NOT\s+COMPLETED/i.test(line);
+                sumoState.saemStochastic = isNot ? 'not_completed' : 'completed';
+                sumoState.sawStochastic = true;
+                sumoState.touched = true;
+            }
+            if (reSaemReduced.test(line)) {
+                const isNot = /NOT\s+COMPLETED/i.test(line);
+                sumoState.saemReduced = isNot ? 'not_completed' : 'completed';
+                sumoState.sawStochastic = true;
+                sumoState.touched = true;
+            }
+
+            if (line.match(/MINIMIZATION SUCCESSFUL/i)) {
+                sumoState.minSuccess = true;
+                sumoState.minSeen = true;
+                sumoState.sawMinimization = true;
+                sumoState.touched = true;
+            } else if (line.match(/MINIMIZATION TERMINATED|MINIMIZATION FAILED|MINIMIZATION NOT SUCCESSFUL/i)) {
+                sumoState.minTerminated = true;
+                sumoState.minSeen = true;
+                sumoState.sawMinimization = true;
+                sumoState.touched = true;
+            }
+            if (line.match(/ESTIMATION STEP OMITTED|ESTIMATION STEP NOT PERFORMED/i)) {
+                sumoState.estOmitted = true;
+                sumoState.sawMinimization = true;
+                sumoState.touched = true;
+            }
+            if (line.match(/NO ROUNDING ERRORS/i)) {
+                sumoState.roundingInfo = true;
+                sumoState.roundingErrors = false;
+                sumoState.touched = true;
+            } else if (line.match(/ROUNDING ERRORS/i)) {
+                sumoState.roundingInfo = true;
+                sumoState.roundingErrors = true;
+                sumoState.touched = true;
+            }
+            if (reSigDigits.test(line) && !sumoState.roundingInfo) {
+                sumoState.roundingInfo = true;
+                sumoState.roundingErrors = false;
+                sumoState.touched = true;
+            }
+
+            const finalZeroMatch = line.match(reFinalZeroGrad);
+            if (finalZeroMatch) {
+                sumoState.finalZeroGradInfo = true;
+                sumoState.finalZeroGradCount = parseInt(finalZeroMatch[1], 10);
+                sumoState.touched = true;
+            } else if (!line.match(/FINAL ZERO GRADIENT/i)) {
+                const zeroMatch = line.match(reZeroGrad);
+                if (zeroMatch) {
+                    sumoState.zeroGradInfo = true;
+                    sumoState.zeroGradCount = parseInt(zeroMatch[1], 10);
+                    sumoState.touched = true;
+                }
+            }
+            const hessMatch = line.match(reHessReset);
+            if (hessMatch) {
+                sumoState.hessInfo = true;
+                sumoState.hessResetCount = parseInt(hessMatch[1], 10);
+                sumoState.touched = true;
+            }
+            const resetHessMatch = line.match(reResetHess);
+            if (resetHessMatch) {
+                sumoState.hessInfo = true;
+                if (resetHessMatch[1]) {
+                    const count = parseInt(resetHessMatch[1], 10);
+                    if (!Number.isNaN(count)) {
+                        sumoState.hessResetCount = count;
+                    }
+                } else {
+                    const current = typeof sumoState.hessResetCount === 'number' ? sumoState.hessResetCount : 0;
+                    sumoState.hessResetCount = current + 1;
+                }
+                sumoState.touched = true;
+            }
+
+            if (line.match(/NEAR ITS BOUNDARY/i)) {
+                sumoState.nearBoundaryInfo = true;
+                sumoState.nearBoundary = true;
+                sumoState.touched = true;
+            }
+
+            if (line.match(/COVARIANCE STEP OMITTED:\s*YES/i)) {
+                sumoState.covStepOmitted = true;
+                sumoState.touched = true;
+            }
+            if (line.match(/COVARIANCE STEP NOT SUCCESSFUL/i)) {
+                sumoState.covStepRun = true;
+                sumoState.covStepSuccess = false;
+                sumoState.touched = true;
+            }
+            if (line.match(/COVARIANCE STEP SUCCESSFUL|COVARIANCE STEP COMPLETED/i)) {
+                sumoState.covStepRun = true;
+                sumoState.covStepSuccess = true;
+                sumoState.touched = true;
+            }
+            if (line.match(/COVARIANCE STEP WARNING|COVARIANCE STEP WITH WARNING/i)) {
+                sumoState.covStepRun = true;
+                sumoState.covWarnings = true;
+                sumoState.touched = true;
+            }
+            if (reCovSubR.test(line) || reCovSubS.test(line)) {
+                sumoState.covStepRun = true;
+                sumoState.covStepSuccess = false;
+                sumoState.covSubstituted = true;
+                sumoState.touched = true;
+            }
+            const negEigenMatch = line.match(reNegEigen);
+            if (negEigenMatch) {
+                const count = parseInt(negEigenMatch[1], 10);
+                if (!Number.isNaN(count) && count > 0) {
+                    sumoState.covStepRun = true;
+                    sumoState.covWarnings = true;
+                    sumoState.touched = true;
+                }
+            }
+
             if (line.match(/SIMULATION STEP PERFORMED/)) {
                 sim_area = 1;
             }
@@ -407,6 +795,9 @@ export class LstParser {
         
             if (line.match(/COVARIANCE MATRIX OF ESTIMATE/) && !line.match(/INVERSE/)) {
                 cov_mat[est_method] = "Y";
+                sumoState.covStepRun = true;
+                sumoState.covMatrixSeen = true;
+                sumoState.touched = true;
             }
         
             if (line.match(/Elapsed\s*estimation\s*time\s*in\s*seconds:/)) {
@@ -420,6 +811,9 @@ export class LstParser {
                 remaining = remaining.replace(/\s/g, '');
                 times[1] = remaining;
                 est_times[est_method] = est_times[est_method] + "+" + times[1];
+                sumoState.covTimeSeen = true;
+                sumoState.covStepRun = true;
+                sumoState.touched = true;
             }
         
             if (line.match(/EIGENVALUES/)) {
@@ -435,6 +829,8 @@ export class LstParser {
                 eigen_area = 0;
                 if (eig.length > 1 && eig[0] !== 0) {
                     cond_nr[est_method] = eig[eig.length - 1] / eig[0];
+                    sumoState.condNo = cond_nr[est_method];
+                    sumoState.touched = true;
                 }
             }
             if (eigen_area === 1) {
@@ -468,16 +864,64 @@ export class LstParser {
         
             if (line.match(/NEAR ITS BOUNDARY/)) {
                 bnd[est_method] = "Y";
+                sumoState.nearBoundaryInfo = true;
+                sumoState.nearBoundary = true;
+                sumoState.touched = true;
             }
-        
+
+            if (reCorrMatrix.test(line)) {
+                corrArea = true;
+                corrRowCount = 0;
+                if (line.match(/THETA/i)) {
+                    corrType = 'theta';
+                } else if (line.match(/OMEGA|ETA/i)) {
+                    corrType = 'omega';
+                } else if (line.match(/SIGMA|EPS/i)) {
+                    corrType = 'sigma';
+                } else {
+                    corrType = 'unknown';
+                }
+            }
+            if (corrArea) {
+                const rowMatch = line.match(/^\s*(\d+)\s+/);
+                const hasDecimal = /\d+\.\d|E[+-]\d/i.test(line);
+                if (rowMatch && hasDecimal) {
+                    const rowIndex = parseInt(rowMatch[1], 10);
+                    const values = extractAllNumbers(line);
+                    if (values.length > 0 && values[0] === rowIndex) {
+                        values.shift();
+                    }
+                    const labels = getCorrLabels(corrType);
+                    const prefix = getCorrPrefix(corrType);
+                    values.forEach((value, idx) => {
+                        const colIndex = idx + 1;
+                        if (colIndex < rowIndex && Math.abs(value) >= correlationLimit) {
+                            const left = formatCorrLabel(rowIndex, labels, prefix);
+                            const right = formatCorrLabel(colIndex, labels, prefix);
+                            sumoState.corrPairs.push({ left, right, value });
+                        }
+                    });
+                    sumoState.corrChecked = true;
+                    sumoState.touched = true;
+                    corrRowCount++;
+                } else if (!line.match(/^\s*\d+/) && corrRowCount > 0) {
+                    corrArea = false;
+                }
+            }
+
             
         }
         
+        for (const [method, state] of Object.entries(sumoStates)) {
+            sumo[method] = finalizeSumoState(state);
+        }
+
         return {
             methods,
             estimates,
             se_estimates,
             term_res,
+            sumo,
             ofvs,
             cov_mat,
             est_times,
@@ -761,6 +1205,24 @@ function roundTo(value: number, digits: number): number {
     const factor = Math.pow(10, digits);
     return Math.round(value * factor) / factor;
 }
+function formatSumoLineHtml(label: string, status: string): string {
+    const normalized = status.trim().toUpperCase();
+    let cls = 'sumo-neutral';
+    if (normalized === 'OK') { cls = 'sumo-ok'; }
+    else if (normalized === 'ERROR') { cls = 'sumo-error'; }
+    else if (normalized === 'WARNING') { cls = 'sumo-warning'; }
+    return `<span class="sumo-line ${cls}" title="${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+}
+function formatCorrelationValue(value: number): string {
+    const str = value.toFixed(3);
+    return str.replace(/\.?0+$/, '');
+}
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 
 /**
  * WebView 코드
@@ -845,6 +1307,7 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
             const est = parseResults.estimates[method] || { th: [], om: [], si: [] };
             const se  = parseResults.se_estimates[method] || { th: [], om: [], si: [] };
             const term = parseResults.term_res[method] || { omShrink: [], siShrink: [] };
+            const sumo = parseResults.sumo[method];
             const ofv = parseResults.ofvs[method] || 'N/A';
             const nearBoundary = parseResults.bnd[method] || 'N/A';
             const covStep = parseResults.cov_mat[method] || 'N/A';
@@ -914,10 +1377,11 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                         </tr>
                     </tbody>
                 </table>
+                ${sumo ? this.renderSumoSummary(sumo) : ''}
                 <script>
                     document.addEventListener('DOMContentLoaded', function() {
                         document.querySelectorAll("table tr td:first-child").forEach(function(cell) {
-                            const text = cell.textContent.toUpperCase();
+                            const text = cell.textContent.toUpperCase()
                             if (text.includes("THETA")) {
                                 cell.style.color = "#6699cc";
                             } else if (text.includes("OMEGA")) {
@@ -986,6 +1450,31 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                         text-overflow: ellipsis;
                         color: gray;
                     }
+                    .sumo-output {
+                        font-family: Menlo, Consolas, "Liberation Mono", monospace;
+                        font-size: 11px;
+                        white-space: pre-wrap;
+                        background: rgba(0,0,0,0.03);
+                        border: 1px solid rgba(0,0,0,0.08);
+                        padding: 6px 8px;
+                        margin: 0 0 14px 0;
+                    }
+                    .sumo-line {
+                        display: block;
+                        white-space: pre-wrap;
+                        padding: 1px 0;
+                    }
+                    .sumo-line::before {
+                        content: "|";
+                        color: currentColor;
+                        display: inline-block;
+                        font-weight: 700;
+                        width: 10px;
+                    }
+                    .sumo-ok { color: #3bb273; }
+                    .sumo-error { color: #e24c4b; }
+                    .sumo-warning { color: #f2c94c; }
+                    .sumo-neutral { color: #9aa0a6; }
                 </style>
             </head>
             <body>
@@ -1054,6 +1543,14 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
             </h6>
             </html>
         `;
+    }
+    private renderSumoSummary(summary: SumoSummary): string {
+        const lines = summary.lines.map(item => formatSumoLineHtml(item.label, item.status));
+        const detailLines = summary.details.map(detail =>
+            `<span class="sumo-line sumo-neutral">${escapeHtml(detail)}</span>`
+        );
+        const allLines = lines.concat(detailLines);
+        return `<div class="sumo-output">${allLines.join('')}</div>`;
     }
     /**
      * THETA(1차원)의 (est, se), init, label을 나란히 보여주는 행
