@@ -358,7 +358,7 @@ export class LstParser {
         const reInitialTheta = /INITIAL ESTIMATE OF THETA/;
         const reInitialOmega = /INITIAL ESTIMATE OF OMEGA/;
         const reInitialSigma = /INITIAL ESTIMATE OF SIGMA/;
-        const reCovEst = /(?:\$(?:COV|EST|TAB)|0SIGMA CONSTRAINED|0COVARIANCE)/i;
+        const reCovEst = /(?:\$(?:COV|EST|TAB|THETAP|OMEGAP|SIM|PRIOR)|0SIGMA CONSTRAINED|0COVARIANCE)/i;
         const reCovRequest = /^\$COV(?:ARIANCE)?\b/i;
         const reMeth = /#METH\:/;
         const reTerm = /#TERM\:/;
