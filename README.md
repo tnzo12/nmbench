@@ -73,6 +73,8 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
+### 0.1.4 - 0.1.5
+* Modelfit_dir hide button added, Run summarize in webviewer
 ### 0.1.1 - 0.1.3 (Hotfix)
 * Corrected estimates viewer algorithm
 ### 0.1.0
