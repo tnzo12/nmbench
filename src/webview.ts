@@ -83,6 +83,7 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     overflow: auto;
                 }
                 .controls label, .controls select, .controls button, .controls input { font-size: 0.8em; }
+                #groupValues { min-height: 9.5em; }
                 .controls button { margin-top: 4px; }
                 .controls input[type="number"] { width: 60px; }
                 .inline-row { display: flex; gap: 8px; align-items: center; }

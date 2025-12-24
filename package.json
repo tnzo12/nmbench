@@ -10,7 +10,7 @@
     ],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "engines": {
         "vscode": "^1.85.0"
     },
