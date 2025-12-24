@@ -18,6 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
         treeDataProvider: modFileViewerProvider,
         canSelectMany: true // 전체 트리에 다중 선택 허용
     });
+    let estimatesProvider: EstimatesWebViewProvider | undefined;
 
     // 상태 메시지 갱신 함수: 토글 상태에 따라 뷰 상단에 안내 문구 표시
     const updateViewMessage = () => {
@@ -46,6 +47,138 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
   context.subscriptions.push(disp);
+
+    const getEstimatesContextUri = (): vscode.Uri | undefined => {
+        const estimatesPath = estimatesProvider?.getCurrentFilePath();
+        if (estimatesPath && fs.existsSync(estimatesPath)) {
+            return vscode.Uri.file(estimatesPath);
+        }
+        return vscode.window.activeTextEditor?.document?.uri;
+    };
+
+    const extractTableFileNames = (content: string): string[] => {
+        const fileNames: string[] = [];
+        const tableRegex = /\$TABLE\b[\s\S]*?\bFILE\s*=\s*([^\s,]+)/gi;
+        let match: RegExpExecArray | null;
+        while ((match = tableRegex.exec(content)) !== null) {
+            let fileName = match[1].trim();
+            fileName = fileName.replace(/^['"]|['"]$/g, '');
+            fileName = fileName.replace(/[;,)\]]$/, '');
+            fileName = fileName.replace(/^[^\w.\-\/]+|[^\w.\-\/]+$/g, '');
+            if (fileName) {
+                fileNames.push(fileName);
+            }
+        }
+        return fileNames;
+    };
+
+    const buildLinkedFileItems = async (nodeUri: vscode.Uri): Promise<{ label: string; description: string }[]> => {
+        const dir = path.dirname(nodeUri.fsPath);
+        const baseName = path.basename(nodeUri.fsPath, path.extname(nodeUri.fsPath));
+        const files = await fs.promises.readdir(dir);
+        const linkedFiles = files
+            .filter(file => path.basename(file, path.extname(file)) === baseName && file !== path.basename(nodeUri.fsPath))
+            .map(file => ({
+                label: path.basename(file),
+                description: path.join(dir, file)
+            }));
+
+        const candidateFiles: string[] = [nodeUri.fsPath];
+        const ext = path.extname(nodeUri.fsPath).toLowerCase();
+        if (ext === '.lst') {
+            const modPath = path.join(dir, `${baseName}.mod`);
+            const ctlPath = path.join(dir, `${baseName}.ctl`);
+            if (fs.existsSync(modPath)) {
+                candidateFiles.push(modPath);
+            } else if (fs.existsSync(ctlPath)) {
+                candidateFiles.push(ctlPath);
+            }
+        }
+
+        const additionalFiles: { label: string; description: string; }[] = [];
+        for (const candidatePath of candidateFiles) {
+            let fileContent = '';
+            try {
+                fileContent = await readFile(candidatePath, 'utf-8');
+            } catch {
+                continue;
+            }
+            const tableFileNames = extractTableFileNames(fileContent);
+            for (const tableFileName of tableFileNames) {
+                const filePath = path.isAbsolute(tableFileName)
+                    ? tableFileName
+                    : path.join(dir, tableFileName);
+                if (fs.existsSync(filePath)) {
+                    additionalFiles.push({
+                        label: path.basename(filePath),
+                        description: filePath
+                    });
+                } else if (!path.extname(tableFileName)) {
+                    const tableBaseName = path.basename(tableFileName);
+                    const targetDir = path.isAbsolute(tableFileName)
+                        ? path.dirname(tableFileName)
+                        : path.join(dir, path.dirname(tableFileName));
+                    const dirFiles = targetDir === dir
+                        ? files
+                        : await fs.promises.readdir(targetDir).catch(() => []);
+                    const matches = dirFiles
+                        .filter(file => path.basename(file, path.extname(file)).toLowerCase() === tableBaseName.toLowerCase())
+                        .map(file => ({
+                            label: path.basename(file),
+                            description: path.join(targetDir, file)
+                        }));
+                    additionalFiles.push(...matches);
+                }
+            }
+        }
+
+        const dedupedFiles = new Map<string, { label: string; description: string }>();
+        [...linkedFiles, ...additionalFiles].forEach(item => {
+            dedupedFiles.set(item.description, item);
+        });
+        return Array.from(dedupedFiles.values());
+    };
+
+    const isPlotCandidate = (filePath: string): boolean => {
+        const ext = path.extname(filePath).toLowerCase();
+        if (['.tab', '.table', '.csv', '.tsv', '.txt', '.phi'].includes(ext)) {
+            return true;
+        }
+        const base = path.basename(filePath, ext);
+        return /tab|table/i.test(base);
+    };
+
+    const openTablePlotPanel = async (filePath: string) => {
+        const data = await readNmTable(filePath);
+        const panel = vscode.window.createWebviewPanel(
+            'nmTablePlot',
+            `NM Table Plot: ${path.basename(filePath)}`,
+            vscode.ViewColumn.One,
+            { enableScripts: true }
+        );
+        const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+        panel.webview.html = getWebviewContent_plotly(data, theme);
+        panel.webview.onDidReceiveMessage(message => {
+            if (message.command === 'requestData') {
+                panel.webview.postMessage({ command: 'plotData', data: data });
+            }
+            if (message.command === 'updatePlot') {
+                panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
+            }
+        });
+    };
+
+    const openHistogramPanel = async (filePath: string) => {
+        const data = await readNmTable(filePath);
+        const panel = vscode.window.createWebviewPanel(
+            'histogramPlot',
+            `Histogram Plot: ${path.basename(filePath)}`,
+            vscode.ViewColumn.One,
+            { enableScripts: true }
+        );
+        const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+        panel.webview.html = getWebviewContent_hist(data, theme);
+    };
 
     context.subscriptions.push(
         vscode.commands.registerCommand('extension.openModFile', (uri: vscode.Uri) => {
@@ -227,94 +360,76 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('extension.showLinkedFiles', async (node: ModFile) => {
             if (!node) {
-                const editor = vscode.window.activeTextEditor;
-                if (!editor) {
+                const contextUri = getEstimatesContextUri();
+                if (!contextUri) {
                     vscode.window.showErrorMessage('No file selected.');
                     return;
                 }
-                const document = editor.document;
-                if (!document || !document.uri.fsPath.match(/\.(mod|ctl)$/)) {
-                    vscode.window.showErrorMessage('The active file is not a MOD or CTL file.');
+                if (!contextUri.fsPath.match(/\.(mod|ctl|lst)$/)) {
+                    vscode.window.showErrorMessage('The active file is not a MOD, CTL, or LST file.');
                     return;
                 }
-                node = new ModFile(document.uri);
+                node = new ModFile(contextUri);
+            }
+            let allFiles: { label: string; description: string }[] = [];
+            try {
+                allFiles = await buildLinkedFileItems(node.uri);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Error reading directory: ${message}`);
+                return;
+            }
+            if (allFiles.length === 0) {
+                vscode.window.showInformationMessage('No linked files found.');
+                return;
             }
 
-            const dir = path.dirname(node.uri.fsPath);
-            const baseName = path.basename(node.uri.fsPath, path.extname(node.uri.fsPath));
-
-            fs.readdir(dir, async (err, files) => {
-                if (err) {
-                    vscode.window.showErrorMessage(`Error reading directory: ${err.message}`);
+            const selected = await vscode.window.showQuickPick(allFiles);
+            if (selected) {
+                const selectedUri = vscode.Uri.file(selected.description!);
+                const selectedExt = path.extname(selectedUri.fsPath).toLowerCase();
+                if (selectedExt === '.ext') {
+                    vscode.commands.executeCommand('extension.readExtFile', selectedUri);
                     return;
                 }
-
-                const linkedFiles = files
-                    .filter(file => path.basename(file, path.extname(file)) === baseName && file !== path.basename(node.uri.fsPath))
-                    .map(file => ({
-                        label: path.basename(file),
-                        description: path.join(dir, file)
-                    }));
-
-                const additionalFiles: { label: string; description: string; }[] = [];
-                const fileContent = await readFile(node.uri.fsPath, 'utf-8');
-                const tableLines = fileContent.split('\n').filter(line => line.includes('$TABLE'));
-                tableLines.forEach(line => {
-                    const match = line.match(/\bFILE\s*=\s*(\S+)/i);
-                    if (match) {
-                        const fileName = match[1];
-                        const foundFiles = files
-                            .filter(file => path.basename(file) === fileName)
-                            .map(file => ({
-                                label: path.basename(file),
-                                description: path.join(dir, file)
-                            }));
-                        additionalFiles.push(...foundFiles);
-                    }
-                });
-
-                const allFiles = [...linkedFiles, ...additionalFiles];
-                if (allFiles.length === 0) {
-                    vscode.window.showInformationMessage('No linked files found.');
+                if (['.cov', '.cor', '.coi'].includes(selectedExt)) {
+                    vscode.commands.executeCommand('extension.showHeatmap', selectedUri);
                     return;
                 }
-
-                vscode.window.showQuickPick(allFiles).then(selected => {
-                    if (selected) {
-                        vscode.workspace.openTextDocument(vscode.Uri.file(selected.description!)).then(doc => {
-                            vscode.window.showTextDocument(doc);
-                        });
-                    }
+                vscode.workspace.openTextDocument(selectedUri).then(doc => {
+                    vscode.window.showTextDocument(doc);
                 });
-            });
+            }
         }),
 
-        vscode.commands.registerCommand('extension.showHeatmap', async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) {
-                const document = editor.document;
-                const fileName = document.fileName; // 파일 이름 가져오기
-                const baseFileName = path.basename(fileName); // 경로를 제외한 파일 이름
-
-                const data = await readNmTable_heatmap(fileName);
-                const panel = vscode.window.createWebviewPanel(
-                    'nmTablePlot',
-                    baseFileName, // 패널 이름을 파일 이름으로 설정
-                    vscode.ViewColumn.One,
-                    { enableScripts: true }
-                );
-
-                // Get the current theme
-                const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-                panel.webview.html = getWebviewContent_heatmap_plotly(data, theme, baseFileName);
-
-                // Handle messages from the webview
-                panel.webview.onDidReceiveMessage(message => {
-                    if (message.command === 'updatePlot') {
-                        panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
-                    }
-                });
+        vscode.commands.registerCommand('extension.showHeatmap', async (uri?: vscode.Uri) => {
+            const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
+            if (!targetUri) {
+                vscode.window.showErrorMessage('No file selected.');
+                return;
             }
+
+            const fileName = targetUri.fsPath;
+            const baseFileName = path.basename(fileName);
+
+            const data = await readNmTable_heatmap(fileName);
+            const panel = vscode.window.createWebviewPanel(
+                'nmTablePlot',
+                baseFileName,
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+
+            // Get the current theme
+            const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+            panel.webview.html = getWebviewContent_heatmap_plotly(data, theme, baseFileName);
+
+            // Handle messages from the webview
+            panel.webview.onDidReceiveMessage(message => {
+                if (message.command === 'updatePlot') {
+                    panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
+                }
+            });
         }),
 
         vscode.commands.registerCommand('extension.readExtFile', async (uri: vscode.Uri) => {
@@ -341,6 +456,102 @@ export function activate(context: vscode.ExtensionContext) {
             } else {
                 vscode.window.showErrorMessage('The corresponding .ext file does not exist.');
             }
+        }),
+        vscode.commands.registerCommand('extension.readExtFileFromActive', async () => {
+            const contextUri = getEstimatesContextUri();
+            if (!contextUri) {
+                vscode.window.showErrorMessage('No file selected.');
+                return;
+            }
+            vscode.commands.executeCommand('extension.readExtFile', contextUri);
+        }),
+        vscode.commands.registerCommand('extension.showLinkedPlotFromActive', async () => {
+            const contextUri = getEstimatesContextUri();
+            if (!contextUri) {
+                vscode.window.showErrorMessage('No file selected.');
+                return;
+            }
+            const allFiles = await buildLinkedFileItems(contextUri);
+            const plotFiles = allFiles.filter(item => isPlotCandidate(item.description));
+            if (plotFiles.length === 0) {
+                vscode.window.showInformationMessage('No table files found for plotting.');
+                return;
+            }
+            const selected = await vscode.window.showQuickPick(plotFiles, { placeHolder: 'Select a table file to plot' });
+            if (selected) {
+                await openTablePlotPanel(selected.description);
+            }
+        }),
+        vscode.commands.registerCommand('extension.showLinkedHistogramFromActive', async () => {
+            const contextUri = getEstimatesContextUri();
+            if (!contextUri) {
+                vscode.window.showErrorMessage('No file selected.');
+                return;
+            }
+            const allFiles = await buildLinkedFileItems(contextUri);
+            const plotFiles = allFiles.filter(item => isPlotCandidate(item.description));
+            if (plotFiles.length === 0) {
+                vscode.window.showInformationMessage('No table files found for histogram.');
+                return;
+            }
+            const selected = await vscode.window.showQuickPick(plotFiles, { placeHolder: 'Select a table file for histogram' });
+            if (selected) {
+                await openHistogramPanel(selected.description);
+            }
+        }),
+        vscode.commands.registerCommand('extension.showHeatmapFromActive', async () => {
+            const contextUri = getEstimatesContextUri();
+            if (!contextUri) {
+                vscode.window.showErrorMessage('No file selected.');
+                return;
+            }
+            const dir = path.dirname(contextUri.fsPath);
+            const baseName = path.basename(contextUri.fsPath, path.extname(contextUri.fsPath));
+            const candidates = ['.cov', '.cor', '.coi']
+                .map(ext => path.join(dir, `${baseName}${ext}`))
+                .filter(filePath => fs.existsSync(filePath));
+
+            if (candidates.length === 0) {
+                vscode.window.showErrorMessage('No .cov/.cor/.coi files found for the active file.');
+                return;
+            }
+
+            const pickItems = candidates.map(filePath => ({
+                label: path.basename(filePath),
+                description: filePath
+            }));
+
+            const selected = await vscode.window.showQuickPick(pickItems);
+            if (!selected) {
+                return;
+            }
+
+            vscode.commands.executeCommand('extension.showHeatmap', vscode.Uri.file(selected.description!));
+        }),
+        vscode.commands.registerCommand('extension.snapshotEstimatesView', () => {
+            if (!estimatesProvider) {
+                vscode.window.showErrorMessage('Estimates view is not ready.');
+                return;
+            }
+            const html = estimatesProvider.getCurrentHtml();
+            if (!html) {
+                vscode.window.showErrorMessage('No Estimates view content to snapshot.');
+                return;
+            }
+            const filePath = estimatesProvider.getCurrentFilePath();
+            const titleSuffix = filePath ? `: ${path.basename(filePath)}` : '';
+            const maxColumn = Math.max(
+                ...vscode.window.tabGroups.all.map(group => group.viewColumn || 1),
+                1
+            );
+            const targetColumn = maxColumn + 1;
+            const panel = vscode.window.createWebviewPanel(
+                'estimatesSnapshot',
+                `Estimates Snapshot${titleSuffix}`,
+                { viewColumn: targetColumn, preserveFocus: true },
+                { enableScripts: true }
+            );
+            panel.webview.html = html;
         })
     );
 
@@ -394,6 +605,9 @@ export function activate(context: vscode.ExtensionContext) {
 
                 // Handle messages from the webview
                 panel.webview.onDidReceiveMessage(message => {
+                    if (message.command === 'requestData') {
+                        panel.webview.postMessage({ command: 'plotData', data: data });
+                    }
                     if (message.command === 'updatePlot') {
                         panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
                     }
@@ -426,6 +640,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 
     const provider = new EstimatesWebViewProvider(context);
+    estimatesProvider = provider;
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(EstimatesWebViewProvider.viewType, provider)
     );

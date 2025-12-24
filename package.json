@@ -10,7 +10,7 @@
     ],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -98,7 +98,11 @@
             },
             {
                 "command": "extension.showLinkedFiles",
-                "title": "Show related Files"
+                "title": "Show related Files",
+                "icon": {
+                    "dark": "./resources/dark/link.svg",
+                    "light": "./resources/light/link.svg"
+                }
             },
             {
                 "command": "extension.refreshModFileViewer",
@@ -114,6 +118,46 @@
                 "icon": {
                     "dark": "./resources/dark/mat.svg",
                     "light": "./resources/light/mat.svg"
+                }
+            },
+            {
+                "command": "extension.readExtFileFromActive",
+                "title": "Output",
+                "icon": {
+                    "dark": "./resources/dark/inspect.svg",
+                    "light": "./resources/light/inspect.svg"
+                }
+            },
+            {
+                "command": "extension.showLinkedPlotFromActive",
+                "title": "Plot Table",
+                "icon": {
+                    "dark": "./resources/dark/graph.svg",
+                    "light": "./resources/light/graph.svg"
+                }
+            },
+            {
+                "command": "extension.showLinkedHistogramFromActive",
+                "title": "Histogram Table",
+                "icon": {
+                    "dark": "./resources/dark/hist.svg",
+                    "light": "./resources/light/hist.svg"
+                }
+            },
+            {
+                "command": "extension.showHeatmapFromActive",
+                "title": "Show Heatmap",
+                "icon": {
+                    "dark": "./resources/dark/mat.svg",
+                    "light": "./resources/light/mat.svg"
+                }
+            },
+            {
+                "command": "extension.snapshotEstimatesView",
+                "title": "Snapshot Estimates",
+                "icon": {
+                    "dark": "./resources/dark/snapshot.svg",
+                    "light": "./resources/light/snapshot.svg"
                 }
             }
         ],
@@ -206,6 +250,31 @@
                     "when": "view == modFileViewer",
                     "group": "navigation",
                     "toggled": "config.nmbench.modFileViewer.hideModelFitDirs"
+                },
+                {
+                    "command": "extension.showLinkedFiles",
+                    "when": "view == estimatesView",
+                    "group": "navigation"
+                },
+                {
+                    "command": "extension.showHeatmapFromActive",
+                    "when": "view == estimatesView",
+                    "group": "navigation"
+                },
+                {
+                    "command": "extension.showLinkedPlotFromActive",
+                    "when": "view == estimatesView",
+                    "group": "navigation"
+                },
+                {
+                    "command": "extension.showLinkedHistogramFromActive",
+                    "when": "view == estimatesView",
+                    "group": "navigation"
+                },
+                {
+                    "command": "extension.snapshotEstimatesView",
+                    "when": "view == estimatesView",
+                    "group": "navigation"
                 }
             ],
             "editor/title": [

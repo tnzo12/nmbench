@@ -1232,6 +1232,8 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
 
     private _view?: vscode.WebviewView;
     private _parser?: LstParser;
+    private _currentFilePath?: string;
+    private _currentHtml?: string;
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -1283,15 +1285,25 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
         }
         
         // fileToUse 파일이 존재하면 파서를 초기화하고 테이블을 생성합니다.
+        this._currentFilePath = fileToUse;
         this._parser = new LstParser(fileToUse);
         const parseResults = this._parser.parseAll(); // 초기 추정치 + 라벨 포함
         
         // HTML 생성
         const tableHtml = this.generateTableHtml(parseResults, fileToUse);
+        this._currentHtml = tableHtml;
         
         if (this._view) {
             this._view.webview.html = tableHtml;
         }
+    }
+
+    public getCurrentFilePath(): string | undefined {
+        return this._currentFilePath;
+    }
+
+    public getCurrentHtml(): string | undefined {
+        return this._currentHtml;
     }
 
     /**
@@ -1478,12 +1490,26 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                 </style>
             </head>
             <body>
-                ${htmlSections.join('\n')}
-                <div id="cv-controls" style="background: transparent; padding: 6px 8px; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px;">                  <strong>Ω CV mode:</strong>
-                  <label><input type="radio" name="cvMode" value="off" checked> Off</label>
-                  <label><input type="radio" name="cvMode" value="sqrt"> √w²</label>
-                  <label><input type="radio" name="cvMode" value="lognorm"> lognorm</label>
-                  <span style="color:#888;">Applies to diagonal OMEGA only</span>
+                <div id="estimates-content">
+                    ${htmlSections.join('\n')}
+                    <div id="cv-controls" style="background: transparent; padding: 6px 8px; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px;">                  <strong>Ω CV mode:</strong>
+                      <label><input type="radio" name="cvMode" value="off" checked> Off</label>
+                      <label><input type="radio" name="cvMode" value="sqrt"> √w²</label>
+                      <label><input type="radio" name="cvMode" value="lognorm"> lognorm</label>
+                      <span style="color:#888;">Applies to diagonal OMEGA only</span>
+                    </div>
+                    <h6>
+                        <li>( ): Relative Standard Error %</li>
+                        <li>[ ]: Shrinkage %</li>
+                        <li style="color: #666666;">Grey shade: Fixed</li>
+                        <li style="color: #ff6666;">Red text ⚠️: ETA bar (P<0.05)</li>
+                        <li>Gradients: change from initial value</li>
+                        <li>Bound: Boundary error, Cov: Covariance step</li>
+                    </h6>
+                </div>
+                <div id="copy-controls" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                    <button id="copy-results" style="padding: 4px 8px; font-size: 12px;">Select all + Copy</button>
+                    <span id="copy-status" style="font-size: 11px; color: #666;"></span>
                 </div>
                 <script>
                 (function () {
@@ -1519,6 +1545,33 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                       }
                     });
                   }
+                  function setCopyStatus(message) {
+                    var status = document.getElementById('copy-status');
+                    if (!status) return;
+                    status.textContent = message;
+                    setTimeout(function () { status.textContent = ''; }, 1600);
+                  }
+                  function selectAllContent() {
+                    var content = document.getElementById('estimates-content');
+                    if (!content) return;
+                    var range = document.createRange();
+                    range.selectNodeContents(content);
+                    var selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                  }
+                  function copySelected() {
+                    try {
+                      document.execCommand('copy');
+                      setCopyStatus('Copied');
+                    } catch (err) {
+                      setCopyStatus('Copy failed');
+                    }
+                  }
+                  function selectAllAndCopy() {
+                    selectAllContent();
+                    copySelected();
+                  }
                   document.addEventListener('DOMContentLoaded', function () {
                     cacheBase();
                     var radios = document.querySelectorAll('input[name="cvMode"]');
@@ -1528,19 +1581,15 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                         applyCv(mode);
                       });
                     });
+                    var copyBtn = document.getElementById('copy-results');
+                    if (copyBtn) {
+                      copyBtn.addEventListener('click', selectAllAndCopy);
+                    }
                     applyCv('off'); // initial
                   });
                 })();
                 </script>
             </body>
-            <h6>
-                <li>( ): Relative Standard Error %</li>
-                <li>[ ]: Shrinkage %</li>
-                <li style="color: #666666;">Grey shade: Fixed</li>
-                <li style="color: #ff6666;">Red text ⚠️: ETA bar (P<0.05)</li>
-                <li>Gradients: change from initial value</li>
-                <li>Bound: Boundary error, Cov: Covariance step</li>
-            </h6>
             </html>
         `;
     }

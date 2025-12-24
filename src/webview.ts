@@ -52,13 +52,14 @@ export function getWebviewContent(output: string): string {
     `;
 }
 export function getWebviewContent_plotly(data: any[], theme: string): string {
-    const columns = Object.keys(data[0]);
+    const columns = data.length > 0 ? Object.keys(data[0]) : [];
 
     // Determine colors based on the theme
     const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
     const axisColor = isDarkTheme ? 'white' : 'black';
     const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
     const controlTextColor = isDarkTheme ? 'white' : 'black';
+    const controlBg = isDarkTheme ? 'rgba(0,0,0,0.25)' : 'rgba(255, 255, 255, 0.25)';
 
     return `
         <!DOCTYPE html>
@@ -68,26 +69,23 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
             <style>
-                body { margin: 0; padding: 0; }
-                #plot { width: 100vw; height: 100vh; background: transparent; }
+                body { margin: 0; padding: 0; display: flex; height: 100vh; }
+                #plot { flex: 1; height: 100vh; background: transparent; }
                 .controls { 
-                    position: absolute; 
-                    top: 10px; 
-                    left: 10px; 
-                    z-index: 100; 
-                    background: rgba(255, 255, 255, 0.8); 
+                    width: 112px;
+                    background: ${controlBg}; 
                     padding: 10px; 
-                    border-radius: 5px; 
-                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); 
-                    cursor: move; 
+                    border-right: 1px solid rgba(0,0,0,0.1);
                     display: flex; 
                     flex-direction: column; 
-                    gap: 5px; 
+                    gap: 6px; 
                     color: ${controlTextColor}; 
+                    overflow: auto;
                 }
                 .controls label, .controls select, .controls button, .controls input { font-size: 0.8em; }
-                .controls button { margin-top: 5px; }
-                .controls input[type="number"] { width: 50px; }
+                .controls button { margin-top: 4px; }
+                .controls input[type="number"] { width: 60px; }
+                .inline-row { display: flex; gap: 8px; align-items: center; }
             </style>
         </head>
         <body>
@@ -96,18 +94,31 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                 <select id="xSelect">${columns.map(col => `<option value="${col}" ${col === "TIME" ? "selected" : ""}>${col}</option>`).join('')}</select>
                 <label for="ySelect">Y-axis:</label>
                 <select id="ySelect" multiple size="6">${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
-                <label for="groupSelect">Grouping Variable:</label>
-                <select id="groupSelect">${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}</select>
-                <label for="groupValues">Group Values:</label>
+                <label for="groupSelect">Group variable:</label>
+                <select id="groupSelect">
+                    <option value="">(none)</option>
+                    ${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}
+                </select>
+                <label for="groupValues">Group values:</label>
                 <select id="groupValues" multiple size="6"></select>
-                <button id="updatePlot">Update Plot</button>
+                <label for="subgroupSelect">Sub-group variable:</label>
+                <select id="subgroupSelect">
+                    <option value="">(none)</option>
+                    ${columns.map(col => `<option value="${col}">${col}</option>`).join('')}
+                </select>
+                <label><input id="subplotToggle" type="checkbox" checked> Subplot (facet)</label>
+                <div class="inline-row">
+                    <label><input id="autoTileWidth" type="checkbox" checked> Auto width</label>
+                </div>
+                <div class="inline-row">
+                    <label for="minTileWidth">Min tile width:</label>
+                    <input id="minTileWidth" type="number" min="50" step="10" value="250" disabled>
+                </div>
                 <button id="addYXLine">Add y=x Line</button>
-                <button id="toggleSubplot">Toggle Subplot</button>
                 <div class="button-row">
                   <button id="toggleXTicks">X Ticks</button>
                   <button id="toggleYTicks">Y Ticks</button>
                 </div>
-                <button id="clearPlot">Clear Plot</button>
             </div>
             <div id="plot"></div>
             <script>
@@ -116,45 +127,62 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                 let subplotMode = true;
                 let xTicksVisible = true;
                 let yTicksVisible = true;
+                let hasPlot = false;
                 const colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
 
-                const controls = document.getElementById("controls");
-                let isDragging = false;
-                let offsetX, offsetY;
-                let currentData = ${JSON.stringify(data)};
+                let currentData = [];
+                let uniqueValuesByKey = {};
 
-                controls.addEventListener("mousedown", (e) => {
-                    isDragging = true;
-                    offsetX = e.clientX - controls.offsetLeft;
-                    offsetY = e.clientY - controls.offsetTop;
-                });
-
-                document.addEventListener("mousemove", (e) => {
-                    if (isDragging) {
-                        controls.style.left = (e.clientX - offsetX) + "px";
-                        controls.style.top = (e.clientY - offsetY) + "px";
+                function enableClickMultiSelect(selectId) {
+                    const select = document.getElementById(selectId);
+                    if (!select) {
+                        return;
                     }
-                });
+                    select.addEventListener("mousedown", function (event) {
+                        const option = event.target;
+                        if (option && option.tagName === "OPTION") {
+                            event.preventDefault();
+                            option.selected = !option.selected;
+                            select.dispatchEvent(new Event("change", { bubbles: true }));
+                        }
+                    });
+                    select.addEventListener("keydown", function (event) {
+                        if (event.key === " " || event.key === "Enter") {
+                            const option = select.options[select.selectedIndex];
+                            if (option) {
+                                event.preventDefault();
+                                option.selected = !option.selected;
+                                select.dispatchEvent(new Event("change", { bubbles: true }));
+                            }
+                        }
+                    });
+                }
 
-                document.addEventListener("mouseup", () => {
-                    isDragging = false;
-                });
+                enableClickMultiSelect("ySelect");
+                enableClickMultiSelect("groupValues");
 
                 document.getElementById("groupSelect").addEventListener("change", function () {
-                    updateGroupValues();
-                });
-
-                document.getElementById("updatePlot").addEventListener("click", function () {
+                    updateSelectValues("group");
                     updatePlot();
                 });
+
+                document.getElementById("subgroupSelect").addEventListener("change", function () {
+                    // no value list needed
+                    updatePlot();
+                });
+
+                document.getElementById("xSelect").addEventListener("change", updatePlot);
+                document.getElementById("ySelect").addEventListener("change", updatePlot);
+                document.getElementById("groupValues").addEventListener("change", updatePlot);
+                document.getElementById("minTileWidth").addEventListener("input", updatePlot);
 
                 document.getElementById("addYXLine").addEventListener("click", function () {
                     yxLineAdded = !yxLineAdded;
                     updatePlot();
                 });
 
-                document.getElementById("toggleSubplot").addEventListener("click", function () {
-                    subplotMode = !subplotMode;
+                document.getElementById("subplotToggle").addEventListener("change", function (event) {
+                    subplotMode = event.target.checked;
                     updatePlot();
                 });
 
@@ -168,13 +196,444 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     updatePlot();
                 });
 
-                document.getElementById("clearPlot").addEventListener("click", function () {
-                    Plotly.purge("plot");
+                document.getElementById("autoTileWidth").addEventListener("change", function (event) {
+                    document.getElementById("minTileWidth").disabled = event.target.checked;
+                    updatePlot();
                 });
 
-                  window.onresize = function() {
-                    updatePlot(); // update when window size changes
-                };
+                document.getElementById("minTileWidth").disabled = document.getElementById("autoTileWidth").checked;
+
+                const resizePlot = debounce(() => {
+                    updatePlot();
+                }, 150);
+                window.addEventListener("resize", resizePlot);
+
+                function debounce(fn, wait) {
+                    let timer;
+                    return (...args) => {
+                        clearTimeout(timer);
+                        timer = setTimeout(() => fn(...args), wait);
+                    };
+                }
+
+                function buildUniqueValues() {
+                    const keys = Object.keys(currentData[0] || {});
+                    uniqueValuesByKey = {};
+                    keys.forEach((key) => {
+                        const values = new Set();
+                        for (const row of currentData) {
+                            values.add(String(row[key]));
+                        }
+                        uniqueValuesByKey[key] = Array.from(values);
+                    });
+                }
+
+                function updateSelectValues(type) {
+                    if (type !== "group") {
+                        return;
+                    }
+                    const key = document.getElementById("groupSelect").value;
+                    const target = document.getElementById("groupValues");
+                    if (!key) {
+                        target.innerHTML = "";
+                        return;
+                    }
+                    const values = uniqueValuesByKey[key] || [];
+                    target.innerHTML = values.map(val => \`<option value="\${val}">\${val}</option>\`).join('');
+                }
+
+                function getSelectedValues(selectId) {
+                    return Array.from(document.getElementById(selectId).selectedOptions).map(option => option.value);
+                }
+
+                function groupRows(data, groupKey, subgroupKey, groupValues) {
+                    const groupSet = groupValues.length ? new Set(groupValues) : null;
+                    const grouped = new Map();
+                    for (const row of data) {
+                        const groupVal = groupKey ? String(row[groupKey]) : "All";
+                        const subgroupVal = subgroupKey ? String(row[subgroupKey]) : "All";
+                        if (groupSet && !groupSet.has(groupVal)) {
+                            continue;
+                        }
+                        if (!grouped.has(groupVal)) {
+                            grouped.set(groupVal, new Map());
+                        }
+                        const subgroupMap = grouped.get(groupVal);
+                        if (!subgroupMap.has(subgroupVal)) {
+                            subgroupMap.set(subgroupVal, []);
+                        }
+                        subgroupMap.get(subgroupVal).push(row);
+                    }
+                    return grouped;
+                }
+
+                function updatePlot() {
+                    if (!currentData.length) {
+                        return;
+                    }
+                    const x = document.getElementById("xSelect").value;
+                    const yOptions = getSelectedValues("ySelect");
+                    if (!yOptions.length) {
+                        return;
+                    }
+                    const groupKey = document.getElementById("groupSelect").value;
+                    const subgroupKey = document.getElementById("subgroupSelect").value;
+                    const groupValues = getSelectedValues("groupValues");
+                    const minTileWidthInput = document.getElementById("minTileWidth");
+                    const autoTileWidth = document.getElementById("autoTileWidth").checked;
+                    const minTileWidth = parseInt(minTileWidthInput.value, 10) || 250;
+
+                    const grouped = groupRows(currentData, groupKey, subgroupKey, groupValues);
+                    const groups = Array.from(grouped.keys());
+                    const figData = [];
+                    const dashPatterns = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"];
+                    const tickFontSize = 10;
+                    const tickColor = "#cccccc";
+                    const gridColor = "#cccccc";
+                    const layout = {
+                        showlegend: true,
+                        legend: { orientation: "h", y: -0.06 },
+                        margin: { t: 20, b: 28, l: 40, r: 20 },
+                        paper_bgcolor: '${backgroundColor}',
+                        plot_bgcolor: '${backgroundColor}',
+                        font: { color: '${axisColor}' },
+                        uirevision: "nmbench-plot"
+                    };
+
+                    const legendSeen = new Set();
+                    const useSubplot = subplotMode && groups.length > 1;
+                    if (useSubplot) {
+                        const plotWidth = document.getElementById("plot").clientWidth;
+                        const plotHeight = document.getElementById("plot").clientHeight;
+                        let numCols;
+                        if (autoTileWidth) {
+                            const maxCols = Math.max(1, groups.length);
+                            let bestCols = 1;
+                            let bestScore = Infinity;
+                            const targetAspect = 4 / 3;
+                            for (let cols = 1; cols <= maxCols; cols += 1) {
+                                const rows = Math.ceil(groups.length / cols);
+                                const tileW = plotWidth / cols;
+                                const tileH = plotHeight / rows;
+                                const score = Math.abs((tileW / tileH) - targetAspect);
+                                if (score < bestScore) {
+                                    bestScore = score;
+                                    bestCols = cols;
+                                }
+                            }
+                            numCols = bestCols;
+                        } else {
+                            numCols = Math.max(1, Math.floor(plotWidth / minTileWidth));
+                        }
+                        const numRows = Math.ceil(groups.length / numCols);
+                        const adjustedNumCols = groups.length < numCols ? groups.length : numCols;
+                        layout.grid = { rows: numRows, columns: adjustedNumCols, pattern: "independent" };
+                        const xGap = 0.015;
+                        const yGap = 0.03;
+                        const annotations = [];
+
+                        const subgroupSet = new Set();
+                        groups.forEach((group) => {
+                            const subgroupGroups = grouped.get(group);
+                            for (const [subgroupVal] of subgroupGroups.entries()) {
+                                subgroupSet.add(subgroupVal);
+                            }
+                        });
+                        const subgroupList = Array.from(subgroupSet);
+                        const colorIndexBySubgroup = new Map(
+                            subgroupList.map((val, idx) => [val, idx])
+                        );
+
+                        groups.forEach(function (group, i) {
+                            const subgroupGroups = grouped.get(group);
+                            const subgroupEntries = Array.from(subgroupGroups.entries());
+                            yOptions.forEach((yAxis, yIndex) => {
+                                subgroupEntries.forEach(([subgroupVal, rows], subgroupIndex) => {
+                                    if (!rows.length) {
+                                        return;
+                                    }
+                                    const subgroupColorIndex = colorIndexBySubgroup.has(subgroupVal)
+                                        ? colorIndexBySubgroup.get(subgroupVal)
+                                        : subgroupIndex;
+                                    const traceNameParts = [yAxis];
+                                    if (subgroupKey) {
+                                        traceNameParts.push(subgroupKey + "=" + subgroupVal);
+                                    }
+                                    const legendKey = traceNameParts.join("|");
+                                    const showLegend = !legendSeen.has(legendKey);
+                                    if (showLegend) {
+                                        legendSeen.add(legendKey);
+                                    }
+                                    const trace = {
+                                        x: rows.map(row => row[x]),
+                                        y: rows.map(row => row[yAxis]),
+                                        type: "scattergl",
+                                        mode: "lines+markers",
+                                        name: traceNameParts.join(" | "),
+                                        hovertemplate: subgroupKey
+                                            ? (subgroupKey + ": " + subgroupVal + "<br>" + x + ": %{x}<br>" + yAxis + ": %{y}<extra></extra>")
+                                            : (x + ": %{x}<br>" + yAxis + ": %{y}<extra></extra>"),
+                                        xaxis: "x" + (i + 1),
+                                        yaxis: "y" + (i + 1),
+                                        marker: { color: colors[subgroupColorIndex % colors.length] },
+                                        line: { dash: dashPatterns[yIndex % dashPatterns.length] },
+                                        showlegend: showLegend
+                                    };
+                                    figData.push(trace);
+                                    if (yxLineAdded) {
+                                        const minVal = Math.min(...rows.map(row => Math.min(row[x], row[yAxis])));
+                                        const maxVal = Math.max(...rows.map(row => Math.max(row[x], row[yAxis])));
+                                        const lineTrace = {
+                                            x: [minVal, maxVal],
+                                            y: [minVal, maxVal],
+                                            type: "scatter",
+                                            mode: "lines",
+                                            line: { dash: "solid", color: "grey" },
+                                            showlegend: false,
+                                            xaxis: "x" + (i + 1),
+                                            yaxis: "y" + (i + 1)
+                                        };
+                                        figData.push(lineTrace);
+                                    }
+                                });
+                            });
+                            const row = Math.floor(i / adjustedNumCols) + 1;
+                            const col = (i % adjustedNumCols) + 1;
+                            const xDomainStart = (col - 1) / adjustedNumCols + xGap;
+                            const xDomainEnd = col / adjustedNumCols - xGap;
+                            const yDomainStart = 1 - row / numRows + yGap;
+                            const yDomainEnd = 1 - (row - 1) / numRows - yGap;
+                            layout["xaxis" + (i + 1)] = {
+                                domain: [xDomainStart, xDomainEnd],
+                                showticklabels: xTicksVisible,
+                                tickfont: { size: tickFontSize, color: tickColor },
+                                gridcolor: gridColor
+                            };
+                            layout["yaxis" + (i + 1)] = {
+                                domain: [yDomainStart, yDomainEnd],
+                                showticklabels: yTicksVisible,
+                                tickfont: { size: tickFontSize, color: tickColor },
+                                gridcolor: gridColor
+                            };
+
+                            annotations.push({
+                                x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
+                                y: yDomainEnd,
+                                xref: "paper",
+                                yref: "paper",
+                                text: group,
+                                showarrow: false,
+                                xanchor: "center",
+                                yanchor: "bottom"
+                            });
+                        });
+
+                        layout.annotations = annotations.concat([
+                            {
+                                text: x,
+                                x: 0.5,
+                                xref: "paper",
+                                y: 0,
+                                yref: "paper",
+                                showarrow: false,
+                                xanchor: "center",
+                                yanchor: "top"
+                            },
+                            {
+                                text: yOptions.join(", "),
+                                x: 0,
+                                xref: "paper",
+                                y: 0.5,
+                                yref: "paper",
+                                showarrow: false,
+                                xanchor: "right",
+                                yanchor: "middle",
+                                textangle: -90
+                            }
+                        ]);
+                    } else {
+                        const subgroupSet = new Set();
+                        groups.forEach((group) => {
+                            const subgroupGroups = grouped.get(group);
+                            for (const [subgroupVal] of subgroupGroups.entries()) {
+                                subgroupSet.add(subgroupVal);
+                            }
+                        });
+                        const subgroupList = Array.from(subgroupSet);
+                        const colorIndexBySubgroup = new Map(
+                            subgroupList.map((val, idx) => [val, idx])
+                        );
+
+                        groups.forEach((group) => {
+                            const subgroupGroups = grouped.get(group);
+                            const subgroupEntries = Array.from(subgroupGroups.entries());
+                            yOptions.forEach((yAxis, yIndex) => {
+                                subgroupEntries.forEach(([subgroupVal, rows], subgroupIndex) => {
+                                    if (!rows.length) {
+                                        return;
+                                    }
+                                    const subgroupColorIndex = colorIndexBySubgroup.has(subgroupVal)
+                                        ? colorIndexBySubgroup.get(subgroupVal)
+                                        : subgroupIndex;
+                                    const traceNameParts = [yAxis];
+                                    if (subgroupKey) {
+                                        traceNameParts.push(subgroupKey + "=" + subgroupVal);
+                                    }
+                                    const legendKey = traceNameParts.join("|");
+                                    const showLegend = !legendSeen.has(legendKey);
+                                    if (showLegend) {
+                                        legendSeen.add(legendKey);
+                                    }
+                                    const trace = {
+                                        x: rows.map(row => row[x]),
+                                        y: rows.map(row => row[yAxis]),
+                                        type: "scattergl",
+                                        mode: "lines+markers",
+                                        name: traceNameParts.join(" | "),
+                                        hovertemplate: subgroupKey
+                                            ? (subgroupKey + ": " + subgroupVal + "<br>" + x + ": %{x}<br>" + yAxis + ": %{y}<extra></extra>")
+                                            : (x + ": %{x}<br>" + yAxis + ": %{y}<extra></extra>"),
+                                        marker: { color: colors[subgroupColorIndex % colors.length] },
+                                        line: { dash: dashPatterns[yIndex % dashPatterns.length] },
+                                        showlegend: showLegend
+                                    };
+                                    figData.push(trace);
+                                    if (yxLineAdded) {
+                                        const minVal = Math.min(...rows.map(row => Math.min(row[x], row[yAxis])));
+                                        const maxVal = Math.max(...rows.map(row => Math.max(row[x], row[yAxis])));
+                                        const lineTrace = {
+                                            x: [minVal, maxVal],
+                                            y: [minVal, maxVal],
+                                            type: "scatter",
+                                            mode: "lines",
+                                        line: { dash: "solid", color: "grey" },
+                                            showlegend: false
+                                        };
+                                        figData.push(lineTrace);
+                                    }
+                                });
+                            });
+                        });
+                        layout.xaxis = {
+                            title: x,
+                            showticklabels: xTicksVisible,
+                            tickfont: { size: tickFontSize, color: tickColor },
+                            gridcolor: gridColor
+                        };
+                        layout.yaxis = {
+                            title: yOptions.join(", "),
+                            showticklabels: yTicksVisible,
+                            tickfont: { size: tickFontSize, color: tickColor },
+                            gridcolor: gridColor
+                        };
+
+                    }
+                    if (hasPlot) {
+                        Plotly.react("plot", figData, layout, { responsive: true });
+                    } else {
+                        Plotly.newPlot("plot", figData, layout, { responsive: true });
+                        hasPlot = true;
+                    }
+                }
+
+                window.addEventListener("message", function (event) {
+                    const message = event.data;
+                    if (message.command === "plotData") {
+                        currentData = message.data;
+                        buildUniqueValues();
+                        updateSelectValues("group");
+                        updatePlot();
+                    }
+                });
+
+                vscode.postMessage({ command: "requestData" });
+            </script>
+        </body>
+        </html>
+    `;
+}
+
+export function getWebviewContent_echarts(data: any[], theme: string): string {
+    const columns = Object.keys(data[0]);
+    const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
+    const axisColor = isDarkTheme ? '#f3f3f3' : '#222';
+    const gridColor = isDarkTheme ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
+    const controlTextColor = isDarkTheme ? '#f3f3f3' : '#222';
+    const controlBg = isDarkTheme ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.85)';
+
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+            <style>
+                body { margin: 0; padding: 0; }
+                #plot { width: 100vw; height: 100vh; background: transparent; }
+                .controls { 
+                    position: absolute; 
+                    top: 10px; 
+                    left: 10px; 
+                    z-index: 100; 
+                    background: ${controlBg}; 
+                    padding: 10px; 
+                    border-radius: 5px; 
+                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.35); 
+                    cursor: move; 
+                    display: flex; 
+                    flex-direction: column; 
+                    gap: 6px; 
+                    color: ${controlTextColor}; 
+                }
+                .controls label, .controls select, .controls button { font-size: 0.8em; }
+                .controls select { min-width: 160px; }
+                .button-row { display: flex; gap: 6px; }
+            </style>
+        </head>
+        <body>
+            <div class="controls" id="controls">
+                <label for="xSelect">X-axis:</label>
+                <select id="xSelect">${columns.map(col => `<option value="${col}" ${col === "TIME" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <label for="ySelect">Y-axis:</label>
+                <select id="ySelect" multiple size="6">${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <label for="groupSelect">Grouping Variable:</label>
+                <select id="groupSelect">${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}</select>
+                <label for="groupValues">Group Values:</label>
+                <select id="groupValues" multiple size="6"></select>
+                <div class="button-row">
+                    <button id="updatePlot">Update Plot</button>
+                    <button id="clearPlot">Clear</button>
+                </div>
+            </div>
+            <div id="plot"></div>
+            <script>
+                let currentData = ${JSON.stringify(data)};
+                const chart = echarts.init(document.getElementById('plot'));
+
+                const controls = document.getElementById('controls');
+                let isDragging = false;
+                let offsetX, offsetY;
+                controls.addEventListener('mousedown', (e) => {
+                    isDragging = true;
+                    offsetX = e.clientX - controls.offsetLeft;
+                    offsetY = e.clientY - controls.offsetTop;
+                });
+                document.addEventListener('mousemove', (e) => {
+                    if (isDragging) {
+                        controls.style.left = (e.clientX - offsetX) + "px";
+                        controls.style.top = (e.clientY - offsetY) + "px";
+                    }
+                });
+                document.addEventListener('mouseup', () => { isDragging = false; });
+
+                function isNumeric(value) {
+                    return typeof value === 'number' && !isNaN(value);
+                }
+                function detectAxisType(values) {
+                    const sample = values.slice(0, 50);
+                    return sample.every(isNumeric) ? 'value' : 'category';
+                }
 
                 function updateGroupValues() {
                     const group = document.getElementById("groupSelect").value;
@@ -185,161 +644,116 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
 
                 function updatePlot() {
                     const x = document.getElementById("xSelect").value;
-                    const yOptions = Array.from(document.getElementById("ySelect").selectedOptions).map(option => option.value);
+                    const yOptions = Array.from(document.getElementByIdySelect").selectedOptions).map(option => option.value);
                     const group = document.getElementById("groupSelect").value;
                     const groupValues = Array.from(document.getElementById("groupValues").selectedOptions).map(option => option.value);
 
-                    // If no group values are selected, select all unique group values
                     const selectedGroupValues = groupValues.length > 0 ? groupValues : Array.from(new Set(currentData.map(row => row[group])));
-                    const filteredData = currentData.filter(row => selectedGroupValues.includes(row[group]));
+                    const xValues = currentData.map(row => row[x]);
+                    const xAxisType = detectAxisType(xValues);
 
-                    vscode.postMessage({ command: "updatePlot", config: { x: x, y: yOptions, group: group, groupValues: selectedGroupValues, addYXLine: yxLineAdded, subplotMode: subplotMode, xTicksVisible: xTicksVisible, yTicksVisible: yTicksVisible }, data: filteredData });
+                    const series = [];
+<<<<<<< ours
+                    const grids = [];
+                    const xAxes = [];
+                    const yAxes = [];
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+                    const baseTop = 10;
+                    const baseLeft = 10;
+                    const baseRight = 10;
+                    const baseBottom = 10;
+=======
+                    const baseTop = 32;
+                    const baseLeft = 40;
+                    const baseRight = legendVisible ? 60 : 10;
+                    const baseBottom = 25;
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+
+                    if (facetGroup && selectedGroupValues.length > 0) {
+                        const cols = Math.min(3, selectedGroupValues.length);
+                        const rows = Math.ceil(selectedGroupValues.length / cols);
+                        const rowHeight = Math.max(20, 85 / rows);
+                        const colWidth = Math.max(20, 90 / cols);
+
+                        selectedGroupValues.forEach((gval, idx) => {
+                            const row = Math.floor(idx / cols);
+                            const col = idx % cols;
+                            grids.push({
+                                top: 25 + row * rowHeight + '%',
+                                left: 5 + col * colWidth + '%',
+                                width: (colWidth - 4) + '%',
+                                height: (rowHeight - 8) + '%'
+                            });
+
+                            xAxes.push({
+                                gridIndex: idx,
+                                type: useLogX ? 'log' : xAxisType,
+                                name: row === rows - 1 ? x : '',
+                                nameTextStyle: { color: '${axisColor}' },
+                                axisLine: { lineStyle: { color: '${axisColor}' } },
+                                axisLabel: { color: '${axisColor}' },
+                                splitLine: { lineStyle: { color: '${gridColor}' } }
+                            });
+                            yAxes.push({
+                                gridIndex: idx,
+                                type: useLogY ? 'log' : 'value',
+                                name: col === 0 ? yOptions.join(', ') : '',
+                                nameTextStyle: { color: '${axisColor}' },
+                                axisLine: { lineStyle: { color: '${axisColor}' } },
+                                axisLabel: { color: '${axisColor}' },
+                                splitLine: { lineStyle: { color: '${gridColor}' } }
+                            });
+
+=======
+                    yOptions.forEach((y) => {
+                        selectedGroupValues.forEach((gval) => {
+>>>>>>> theirs
+                            const filtered = currentData.filter(row => row[group] == gval);
+                            const points = filtered.map(row => [row[x], row[y]]);
+                            series.push({
+                                name: selectedGroupValues.length > 1 ? \`\${y} (\${gval})\` : y,
+                                type: 'scatter',
+                                data: points,
+                                symbolSize: 6
+                            });
+                        });
+                    });
+
+                    const option = {
+                        tooltip: { trigger: 'item' },
+                        legend: { top: 0, textStyle: { color: '${axisColor}' } },
+                        grid: { top: 30, left: 45, right: 20, bottom: 35 },
+                        xAxis: {
+                            type: xAxisType,
+                            name: x,
+                            nameTextStyle: { color: '${axisColor}' },
+                            axisLine: { lineStyle: { color: '${axisColor}' } },
+                            axisLabel: { color: '${axisColor}' },
+                            splitLine: { lineStyle: { color: '${gridColor}' } }
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: yOptions.join(', '),
+                            nameTextStyle: { color: '${axisColor}' },
+                            axisLine: { lineStyle: { color: '${axisColor}' } },
+                            axisLabel: { color: '${axisColor}' },
+                            splitLine: { lineStyle: { color: '${gridColor}' } }
+                        },
+                        series: series
+                    };
+                    chart.setOption(option, true);
                 }
 
-                window.addEventListener("message", function (event) {
-                    const message = event.data;
-                    if (message.command === "plotData") {
-                        currentData = message.data;
-                        const config = message.config;
-
-                        const groups = config.groupValues.length > 0 ? config.groupValues : Array.from(new Set(currentData.map(row => row[config.group])));
-                        const figData = [];
-                        const layout = {
-                            showlegend: true,
-                            legend: { orientation: "h", y: -0.01 },
-                            margin: { t: 20, b: 20, l: 40, r: 20 },
-                            paper_bgcolor: '${backgroundColor}',
-                            plot_bgcolor: '${backgroundColor}',
-                            font: { color: '${axisColor}' }
-                        };
-
-                        if (config.subplotMode) {
-                            const plotWidth = document.getElementById("plot").clientWidth;
-                            const numCols = Math.max(1, Math.floor(plotWidth / 250));
-                            const numRows = Math.ceil(groups.length / numCols);
-
-                            // Adjust numCols if there are fewer subplots than columns
-                            const adjustedNumCols = groups.length < numCols ? groups.length : numCols;
-
-                            layout.grid = { rows: numRows, columns: adjustedNumCols, pattern: "independent" };
-                            const xGap = 0.02;
-                            const yGap = 0.02;
-                            const annotations = [];
-
-                            groups.forEach(function (group, i) {
-                                const filteredGroupData = currentData.filter(row => row[config.group] == group);
-                                config.y.forEach((yAxis, j) => {
-                                    const trace = {
-                                        x: filteredGroupData.map(row => row[config.x]),
-                                        y: filteredGroupData.map(row => row[yAxis]),
-                                        type: "scatter",
-                                        mode: "lines+markers",
-                                        name: yAxis,
-                                        xaxis: "x" + (i + 1),
-                                        yaxis: "y" + (i + 1),
-                                        marker: { color: colors[j % colors.length] },
-                                        showlegend: i === 0
-                                    };
-                                    figData.push(trace);
-                                    if (config.addYXLine) {
-                                        const minVal = Math.min(...filteredGroupData.map(row => Math.min(row[config.x], row[yAxis])));
-                                        const maxVal = Math.max(...filteredGroupData.map(row => Math.max(row[config.x], row[yAxis])));
-                                        const lineTrace = {
-                                            x: [minVal, maxVal],
-                                            y: [minVal, maxVal],
-                                            type: "scatter",
-                                            mode: "lines",
-                                            line: { dash: "dash", color: "grey" },
-                                            showlegend: false,
-                                            xaxis: "x" + (i + 1),
-                                            yaxis: "y" + (i + 1)
-                                        };
-                                        figData.push(lineTrace);
-                                    }
-                                });
-                                const row = Math.floor(i / adjustedNumCols) + 1;
-                                const col = (i % adjustedNumCols) + 1;
-                                const xDomainStart = (col - 1) / adjustedNumCols + xGap;
-                                const xDomainEnd = col / adjustedNumCols - xGap;
-                                const yDomainStart = 1 - row / numRows + yGap;
-                                const yDomainEnd = 1 - (row - 1) / numRows - yGap;
-                                layout["xaxis" + (i + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: config.xTicksVisible };
-                                layout["yaxis" + (i + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: config.yTicksVisible };
-
-                                annotations.push({
-                                    x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
-                                    y: yDomainEnd,
-                                    xref: "paper",
-                                    yref: "paper",
-                                    text: group,
-                                    showarrow: false,
-                                    xanchor: "center",
-                                    yanchor: "bottom"
-                                });
-                            });
-
-                            layout.annotations = annotations.concat([
-                                {
-                                    text: config.x,
-                                    x: 0.5,
-                                    xref: "paper",
-                                    y: 0,
-                                    yref: "paper",
-                                    showarrow: false,
-                                    xanchor: "center",
-                                    yanchor: "top"
-                                },
-                                {
-                                    text: config.y.join(", "),
-                                    x: 0,
-                                    xref: "paper",
-                                    y: 0.5,
-                                    yref: "paper",
-                                    showarrow: false,
-                                    xanchor: "right",
-                                    yanchor: "middle",
-                                    textangle: -90
-                                }
-                            ]);
-                        } else {
-                            config.y.forEach((yAxis, j) => {
-                                groups.forEach(function (group, i) {
-                                    const filteredGroupData = currentData.filter(row => row[config.group] == group);
-                                    const trace = {
-                                        x: filteredGroupData.map(row => row[config.x]),
-                                        y: filteredGroupData.map(row => row[yAxis]),
-                                        type: "scatter",
-                                        mode: "lines+markers",
-                                        name: yAxis,
-                                        marker: { color: colors[j % colors.length] },
-                                        showlegend: i === 0
-                                    };
-                                    figData.push(trace);
-                                    if (config.addYXLine) {
-                                        const minVal = Math.min(...filteredGroupData.map(row => Math.min(row[config.x], row[yAxis])));
-                                        const maxVal = Math.max(...filteredGroupData.map(row => Math.max(row[config.x], row[yAxis])));
-                                        const lineTrace = {
-                                            x: [minVal, maxVal],
-                                            y: [minVal, maxVal],
-                                            type: "scatter",
-                                            mode: "lines",
-                                            line: { dash: "dash", color: "grey" },
-                                            showlegend: false
-                                        };
-                                        figData.push(lineTrace);
-                                    }
-                                });
-                            });
-
-                            layout.xaxis = { title: config.x, showticklabels: config.xTicksVisible };
-                            layout.yaxis = { title: config.y.join(", "), showticklabels: config.yTicksVisible };
-                        }
-
-                        Plotly.newPlot("plot", figData, layout, { responsive: true });
-
-                        updateGroupValues();
-                    }
-                });
+                document.getElementById("groupSelect").addEventListener("change", updateGroupValues);
+                document.getElementById("updatePlot").addEventListener("click", updatePlot);
+                document.getElementById("clearPlot").addEventListener("click", () => chart.clear());
+                window.addEventListener("resize", () => chart.resize());
 
                 updateGroupValues();
                 updatePlot();
@@ -744,6 +1158,7 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
     const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
     const controlTextColor = isDarkTheme ? 'white' : 'black';
     const annotationColor = isDarkTheme ? 'white' : 'black';
+    const controlBg = isDarkTheme ? 'rgba(0,0,0,0.25)' : 'rgba(255, 255, 255, 0.25)';
     const borderColor = isDarkTheme ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'; // 연한 테두리 색상
 
     // Generate column options HTML
@@ -758,37 +1173,35 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
             <style>
-                body { margin: 0; padding: 0; }
-                #plot { width: 100vw; height: 100vh; background: transparent; }
+                body { margin: 0; padding: 0; display: flex; height: 100vh; }
+                #plot { flex: 1; height: 100vh; background: transparent; }
                 .controls { 
-                    position: absolute; 
-                    top: 10px; 
-                    left: 10px; 
-                    z-index: 100; 
-                    background: rgba(255, 255, 255, 0.8); 
+                    width: 112px;
+                    background: ${controlBg}; 
                     padding: 10px; 
-                    border-radius: 5px; 
-                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5); 
-                    cursor: move; 
+                    border-right: 1px solid rgba(0,0,0,0.1);
                     display: flex; 
                     flex-direction: column; 
-                    gap: 5px; 
+                    gap: 6px; 
                     color: ${controlTextColor}; 
+                    overflow: auto;
                 }
                 .controls label, .controls select, .controls button, .controls input { font-size: 0.8em; }
-                .controls button { margin-top: 5px; }
-                .controls input[type="number"] { width: 50px; }
+                .controls button { margin-top: 4px; }
+                .controls input[type="number"] { width: 60px; }
+                .button-row { display: flex; gap: 6px; }
+                .button-row button { flex: 1; }
             </style>
         </head>
         <body>
             <div class="controls" id="controls">
                 <label for="columnSelect">Columns:</label>
-                <select id="columnSelect" multiple size="6">${columnOptions}</select>
+                <select id="columnSelect" multiple size="12">${columnOptions}</select>
                 <label for="groupSelect">Group by:</label>
                 <select id="groupSelect">
                     <option value="">None</option>${columnOptions}
                 </select>
-                <button id="updatePlot">Update Plot</button>
+                <button id="deselectAll">Deselect All</button>
                 <button id="togglePlot">Toggle Splom</button>
             </div>
             <div id="plot"></div>
@@ -797,36 +1210,45 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                 let currentData = ${JSON.stringify(data)};
                 let plotType = "histogram"; // Initial plot type
 
-                const controls = document.getElementById("controls");
                 const columnSelect = document.getElementById("columnSelect");
                 const groupSelect = document.getElementById("groupSelect");
-                let isDragging = false;
-                let offsetX, offsetY;
 
                 // Initialize column select with all options selected
                 Array.from(columnSelect.options).forEach(option => option.selected = true);
 
-                controls.addEventListener("mousedown", (e) => {
-                    isDragging = true;
-                    offsetX = e.clientX - controls.offsetLeft;
-                    offsetY = e.clientY - controls.offsetTop;
-                });
-
-                document.addEventListener("mousemove", (e) => {
-                    if (isDragging) {
-                        controls.style.left = (e.clientX - offsetX) + "px";
-                        controls.style.top = (e.clientY - offsetY) + "px";
+                function enableClickMultiSelectHistogram(selectId) {
+                    const select = document.getElementById(selectId);
+                    if (!select) {
+                        return;
                     }
-                });
+                    select.addEventListener("mousedown", function (event) {
+                        const option = event.target;
+                        if (option && option.tagName === "OPTION") {
+                            event.preventDefault();
+                            option.selected = !option.selected;
+                            select.dispatchEvent(new Event("change", { bubbles: true }));
+                        }
+                    });
+                    select.addEventListener("keydown", function (event) {
+                        if (event.key === " " || event.key === "Enter") {
+                            const option = select.options[select.selectedIndex];
+                            if (option) {
+                                event.preventDefault();
+                                option.selected = !option.selected;
+                                select.dispatchEvent(new Event("change", { bubbles: true }));
+                            }
+                        }
+                    });
+                }
 
-                document.addEventListener("mouseup", () => {
-                    isDragging = false;
-                });
+                enableClickMultiSelectHistogram("columnSelect");
 
-                document.getElementById("updatePlot").addEventListener("click", function () {
+                document.getElementById("columnSelect").addEventListener("change", updatePlot);
+                document.getElementById("groupSelect").addEventListener("change", updatePlot);
+                document.getElementById("deselectAll").addEventListener("click", function () {
+                    Array.from(columnSelect.options).forEach(option => option.selected = false);
                     updatePlot();
                 });
-
                 document.getElementById("togglePlot").addEventListener("click", function () {
                     plotType = plotType === "histogram" ? "splom" : "histogram";
                     updatePlot();
@@ -865,13 +1287,12 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                                     marker: { color: colors[groupIndex % colors.length] },
                                     xaxis: 'x' + (index + 1),
                                     yaxis: 'y' + (index + 1),
-                                    autobinx: false,
-                                    histnorm: "count",
-                                    nbinsx: Math.ceil(currentData.length * 0.25) // Coarser binning
+                                    autobinx: true,
+                                    histnorm: "count"
                                 });
                             });
                         });
-                        showLegend = true;
+                        showLegend = false;
                     } else {
                         plotData = columnsToPlot.map((column, index) => {
                             return {
@@ -881,9 +1302,8 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                                 marker: { color: "rgba(255, 102, 102, 0.8)" }, // Semi-transparent red color
                                 xaxis: 'x' + (index + 1),
                                 yaxis: 'y' + (index + 1),
-                                autobinx: false,
-                                histnorm: "count",
-                                nbinsx: Math.ceil(currentData.length * 0.25) // Coarser binning
+                                autobinx: true,
+                                histnorm: "count"
                             };
                         });
                     }
