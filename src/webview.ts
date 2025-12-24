@@ -1189,6 +1189,7 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                     overflow: auto;
                 }
                 .controls label, .controls select, .controls button, .controls input { font-size: 0.8em; }
+                #columnSelect { min-height: 9.5em; }
                 .controls button { margin-top: 4px; }
                 .controls input[type="number"] { width: 60px; }
                 .button-row { display: flex; gap: 6px; }
@@ -1217,6 +1218,14 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
 
                 // Initialize column select with all options selected
                 Array.from(columnSelect.options).forEach(option => option.selected = true);
+                updateColumnSelectSize();
+
+                function updateColumnSelectSize() {
+                    const total = columnSelect.options.length;
+                    const minSize = 6;
+                    const maxSize = 16;
+                    columnSelect.size = Math.max(minSize, Math.min(maxSize, total));
+                }
 
                 function enableClickMultiSelectHistogram(selectId) {
                     const select = document.getElementById(selectId);
