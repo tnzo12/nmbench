@@ -73,8 +73,8 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.1.7 - 0.1.8 (Hotfix)
-* Graph plot fix
+### 0.1.7 - 0.1.9 (Hotfix)
+* Graph plot, Histogram fix
 ### 0.1.6
 * Histogram, Graph plot, link and snapshot functions updated for estimate viewer
 ### 0.1.4 - 0.1.5
