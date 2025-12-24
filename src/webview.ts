@@ -67,7 +67,7 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
             <style>
                 body { margin: 0; padding: 0; display: flex; height: 100vh; }
                 #plot { flex: 1; height: 100vh; background: transparent; }
@@ -86,6 +86,9 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                 #columnSelect { min-height: 9.5em; }
                 #groupValues { min-height: 9.5em; }
                 .controls button { margin-top: 4px; }
+                .controls > button { width: 100%; }
+                .button-row button { width: auto; }
+                .button-row { width: 100%; justify-content: center; }
                 .controls input[type="number"] { width: 60px; }
                 .inline-row { display: flex; gap: 8px; align-items: center; }
             </style>
@@ -109,6 +112,8 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     ${columns.map(col => `<option value="${col}">${col}</option>`).join('')}
                 </select>
                 <label><input id="subplotToggle" type="checkbox" checked> Subplot (facet)</label>
+                <label><input id="syncXToggle" type="checkbox"> Sync X</label>
+                <label><input id="syncYToggle" type="checkbox"> Sync Y</label>
                 <div class="inline-row">
                     <label><input id="autoTileWidth" type="checkbox" checked> Auto width</label>
                 </div>
@@ -117,16 +122,15 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     <input id="minTileWidth" type="number" min="50" step="10" value="250" disabled>
                 </div>
                 <button id="addYXLine">Add y=x Line</button>
-                <div class="button-row">
-                  <button id="toggleXTicks">X Ticks</button>
-                  <button id="toggleYTicks">Y Ticks</button>
-                </div>
             </div>
             <div id="plot"></div>
             <script>
                 const vscode = acquireVsCodeApi();
                 let yxLineAdded = false;
                 let subplotMode = true;
+                let syncScales = false;
+                let syncX = false;
+                let syncY = false;
                 let xTicksVisible = true;
                 let yTicksVisible = true;
                 let hasPlot = false;
@@ -187,16 +191,18 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     subplotMode = event.target.checked;
                     updatePlot();
                 });
-
-                document.getElementById("toggleXTicks").addEventListener("click", function () {
-                    xTicksVisible = !xTicksVisible;
+                document.getElementById("syncXToggle").addEventListener("change", function (event) {
+                    syncX = event.target.checked;
+                    syncScales = syncX || syncY;
+                    updatePlot();
+                });
+                document.getElementById("syncYToggle").addEventListener("change", function (event) {
+                    syncY = event.target.checked;
+                    syncScales = syncX || syncY;
                     updatePlot();
                 });
 
-                document.getElementById("toggleYTicks").addEventListener("click", function () {
-                    yTicksVisible = !yTicksVisible;
-                    updatePlot();
-                });
+ 
 
                 document.getElementById("autoTileWidth").addEventListener("change", function (event) {
                     document.getElementById("minTileWidth").disabled = event.target.checked;
@@ -303,6 +309,31 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     };
 
                     const legendSeen = new Set();
+                    const subgroupSet = new Set();
+                    groups.forEach((group) => {
+                        const subgroupGroups = grouped.get(group);
+                        for (const [subgroupVal] of subgroupGroups.entries()) {
+                            subgroupSet.add(subgroupVal);
+                        }
+                    });
+                    const subgroupList = Array.from(subgroupSet);
+                    const colorIndexBySubgroup = new Map(
+                        subgroupList.map((val, idx) => [val, idx])
+                    );
+                    const seriesCache = new Map();
+                    groups.forEach((group) => {
+                        const subgroupGroups = grouped.get(group);
+                        const subgroupCache = new Map();
+                        for (const [subgroupVal, rows] of subgroupGroups.entries()) {
+                            const xVals = rows.map(row => row[x]);
+                            const yValsByKey = new Map();
+                            yOptions.forEach((yAxis) => {
+                                yValsByKey.set(yAxis, rows.map(row => row[yAxis]));
+                            });
+                            subgroupCache.set(subgroupVal, { xVals, yValsByKey });
+                        }
+                        seriesCache.set(group, subgroupCache);
+                    });
                     const useSubplot = subplotMode && groups.length > 1;
                     if (useSubplot) {
                         const plotWidth = document.getElementById("plot").clientWidth;
@@ -334,18 +365,6 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                         const yGap = 0.03;
                         const annotations = [];
 
-                        const subgroupSet = new Set();
-                        groups.forEach((group) => {
-                            const subgroupGroups = grouped.get(group);
-                            for (const [subgroupVal] of subgroupGroups.entries()) {
-                                subgroupSet.add(subgroupVal);
-                            }
-                        });
-                        const subgroupList = Array.from(subgroupSet);
-                        const colorIndexBySubgroup = new Map(
-                            subgroupList.map((val, idx) => [val, idx])
-                        );
-
                         groups.forEach(function (group, i) {
                             const subgroupGroups = grouped.get(group);
                             const subgroupEntries = Array.from(subgroupGroups.entries());
@@ -366,9 +385,12 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                                     if (showLegend) {
                                         legendSeen.add(legendKey);
                                     }
+                                    const cache = seriesCache.get(group).get(subgroupVal);
+                                    const xVals = cache.xVals;
+                                    const yVals = cache.yValsByKey.get(yAxis);
                                     const trace = {
-                                        x: rows.map(row => row[x]),
-                                        y: rows.map(row => row[yAxis]),
+                                        x: xVals,
+                                        y: yVals,
                                         type: "scattergl",
                                         mode: "lines+markers",
                                         name: traceNameParts.join(" | "),
@@ -383,8 +405,8 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                                     };
                                     figData.push(trace);
                                     if (yxLineAdded) {
-                                        const minVal = Math.min(...rows.map(row => Math.min(row[x], row[yAxis])));
-                                        const maxVal = Math.max(...rows.map(row => Math.max(row[x], row[yAxis])));
+                                        const minVal = Math.min(...xVals.map((val, idx) => Math.min(val, yVals[idx])));
+                                        const maxVal = Math.max(...xVals.map((val, idx) => Math.max(val, yVals[idx])));
                                         const lineTrace = {
                                             x: [minVal, maxVal],
                                             y: [minVal, maxVal],
@@ -405,18 +427,26 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                             const xDomainEnd = col / adjustedNumCols - xGap;
                             const yDomainStart = 1 - row / numRows + yGap;
                             const yDomainEnd = 1 - (row - 1) / numRows - yGap;
-                            layout["xaxis" + (i + 1)] = {
+                            const xAxisKey = "xaxis" + (i + 1);
+                            const yAxisKey = "yaxis" + (i + 1);
+                            layout[xAxisKey] = {
                                 domain: [xDomainStart, xDomainEnd],
                                 showticklabels: xTicksVisible,
                                 tickfont: { size: tickFontSize, color: tickColor },
                                 gridcolor: gridColor
                             };
-                            layout["yaxis" + (i + 1)] = {
+                            layout[yAxisKey] = {
                                 domain: [yDomainStart, yDomainEnd],
                                 showticklabels: yTicksVisible,
                                 tickfont: { size: tickFontSize, color: tickColor },
                                 gridcolor: gridColor
                             };
+                            if (i > 0 && syncX) {
+                                layout[xAxisKey].matches = "x";
+                            }
+                            if (i > 0 && syncY) {
+                                layout[yAxisKey].matches = "y";
+                            }
 
                             annotations.push({
                                 x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
@@ -454,18 +484,6 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                             }
                         ]);
                     } else {
-                        const subgroupSet = new Set();
-                        groups.forEach((group) => {
-                            const subgroupGroups = grouped.get(group);
-                            for (const [subgroupVal] of subgroupGroups.entries()) {
-                                subgroupSet.add(subgroupVal);
-                            }
-                        });
-                        const subgroupList = Array.from(subgroupSet);
-                        const colorIndexBySubgroup = new Map(
-                            subgroupList.map((val, idx) => [val, idx])
-                        );
-
                         groups.forEach((group) => {
                             const subgroupGroups = grouped.get(group);
                             const subgroupEntries = Array.from(subgroupGroups.entries());
@@ -486,9 +504,12 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                                     if (showLegend) {
                                         legendSeen.add(legendKey);
                                     }
+                                    const cache = seriesCache.get(group).get(subgroupVal);
+                                    const xVals = cache.xVals;
+                                    const yVals = cache.yValsByKey.get(yAxis);
                                     const trace = {
-                                        x: rows.map(row => row[x]),
-                                        y: rows.map(row => row[yAxis]),
+                                        x: xVals,
+                                        y: yVals,
                                         type: "scattergl",
                                         mode: "lines+markers",
                                         name: traceNameParts.join(" | "),
@@ -501,8 +522,8 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                                     };
                                     figData.push(trace);
                                     if (yxLineAdded) {
-                                        const minVal = Math.min(...rows.map(row => Math.min(row[x], row[yAxis])));
-                                        const maxVal = Math.max(...rows.map(row => Math.max(row[x], row[yAxis])));
+                                        const minVal = Math.min(...xVals.map((val, idx) => Math.min(val, yVals[idx])));
+                                        const maxVal = Math.max(...xVals.map((val, idx) => Math.max(val, yVals[idx])));
                                         const lineTrace = {
                                             x: [minVal, maxVal],
                                             y: [minVal, maxVal],
@@ -765,45 +786,37 @@ export function getWebviewContent_echarts(data: any[], theme: string): string {
     `;
 }
 export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: string): string {
-    const xLabels = Object.values(data[0]).slice(1) as string[]; // 첫 행의 첫 열을 제외한 값
-    const yLabels = data.slice(1).map(row => Object.values(row)[0] as string); // 첫 열의 첫 행을 제외한 값
-    const originalZValues = data.slice(1).map(row => Object.values(row).slice(1).map(value => Number(value)) as number[]); // 원래 값들
-    const ignoreDiagonals = !fileName.endsWith('.phi'); // 확장자가 .phi이면 대각 요소를 색칠하지 않음
+    const headerKeys = Object.keys(data[0]);
+    const rowLabelKey = headerKeys[0];
+    const xLabels = headerKeys.slice(1).map(String);
+    const yLabels = data.slice(1).map(row => String(row[rowLabelKey]));
+    const originalZValues = yLabels.map(label => {
+        const row = data.slice(1).find(r => String(r[rowLabelKey]) === label);
+        if (!row) {
+            return new Array(xLabels.length).fill(NaN);
+        }
+        return xLabels.map((_, idx) => {
+            const key = headerKeys[idx + 1];
+            const value = Number(row[key]);
+            return Number.isFinite(value) ? value : NaN;
+        });
+    });
+    const ignoreDiagonals = !fileName.endsWith('.phi');
     const zValues = originalZValues.map((row, rowIndex) =>
         row.map((value, colIndex) => {
-            if (ignoreDiagonals && rowIndex === colIndex) { return NaN; } // 대각선 요소는 NaN으로 설정하여 색상 제거
-            return value === 0 ? 0 : Math.tanh(Math.abs(value)) * Math.sign(value); // zValues를 tanh 스케일로 변환
+            if (ignoreDiagonals && rowIndex === colIndex) { return NaN; }
+            return value === 0 ? 0 : Math.tanh(Math.abs(value)) * Math.sign(value);
         })
     );
+    const textValues = originalZValues.map(row => row.map(value => value.toFixed(2)));
 
-    const textValues = originalZValues.map(row => row.map(value => value.toFixed(2))); // 텍스트 값 생성, 소수점 둘째 자리까지 반올림
-
-    // Determine colors based on the theme
     const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
     const axisColor = isDarkTheme ? 'white' : 'black';
-    const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
-    const gridColor = isDarkTheme ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'; // 옅은 그리드 색상
+    const backgroundColor = 'rgba(0, 0, 0, 0)';
+    const gridColor = isDarkTheme ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)';
+    const controlTextColor = isDarkTheme ? 'white' : 'black';
+    const controlBg = isDarkTheme ? 'rgba(0,0,0,0.25)' : 'rgba(255, 255, 255, 0.25)';
 
-    // Generate annotations for each cell
-    const annotations = [];
-    for (let i = 0; i < yLabels.length; i++) {
-        for (let j = 0; j < xLabels.length; j++) {
-            annotations.push({
-                x: xLabels[j],
-                y: yLabels[i],
-                text: textValues[i][j], // display untransformed val.
-                xref: 'x1',
-                yref: 'y1',
-                showarrow: false,
-                textangle: -45, // Text angle
-                font: {
-                    color: axisColor
-                }
-            });
-        }
-    }
-
-    // Create custom colorscale to adjust opacity for zero values
     const colorscale = [
         [0, 'rgba(102, 153, 204, 1)'],
         [0.25, 'rgba(153, 204, 204, 0.8)'],
@@ -818,26 +831,125 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
             <style>
-                body { margin: 0; padding: 0; }
-                #plot { width: 100vw; height: 100vh; background: transparent; }
+                body { margin: 0; padding: 0; display: flex; height: 100vh; }
+                #plot { flex: 1; height: 100vh; background: transparent; }
+                .controls {
+                    width: 112px;
+                    background: ${controlBg};
+                    padding: 10px;
+                    border-right: 1px solid rgba(0,0,0,0.1);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    color: ${controlTextColor};
+                    overflow: auto;
+                }
+                .controls label, .controls select, .controls button { font-size: 0.8em; }
+                .controls button { margin-top: 4px; width: 100%; }
+                #labelSelect { min-height: 9.5em; }
+                .button-row { display: flex; gap: 6px; }
+                .button-row button { flex: 1; width: auto; }
             </style>
         </head>
         <body>
+            <div class="controls" id="controls">
+                <label for="labelSelect">Labels:</label>
+                <select id="labelSelect" multiple size="10"></select>
+                <label><input id="offDiagToggle" type="checkbox" checked> Hide off-diagonal</label>
+                <div class="button-row">
+                    <button id="showTheta">THETA</button>
+                    <button id="showOmega">OMEGA</button>
+                </div>
+                <div class="button-row">
+                    <button id="showSigma">SIGMA</button>
+                    <button id="showAll">ALL</button>
+                </div>
+            </div>
             <div id="plot"></div>
             <script>
                 const xLabels = ${JSON.stringify(xLabels)};
                 const yLabels = ${JSON.stringify(yLabels)};
                 const originalZValues = ${JSON.stringify(originalZValues)};
-                let zValues = ${JSON.stringify(zValues)};
                 const textValues = ${JSON.stringify(textValues)};
-                const annotations = ${JSON.stringify(annotations)};
                 const colorscale = ${JSON.stringify(colorscale)};
                 const axisColor = '${axisColor}';
                 const backgroundColor = '${backgroundColor}';
                 const gridColor = '${gridColor}';
                 const ignoreDiagonals = ${ignoreDiagonals};
+
+                const labelSelect = document.getElementById("labelSelect");
+                const offDiagToggle = document.getElementById("offDiagToggle");
+                const baseLabels = [...xLabels];
+
+                function parseMatrixLabel(label) {
+                    const match = label.match(/(OMEGA|SIGMA)\\s*\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)/i);
+                    if (!match) {
+                        return null;
+                    }
+                    return {
+                        prefix: match[1].toUpperCase(),
+                        row: Number(match[2]),
+                        col: Number(match[3])
+                    };
+                }
+
+                function isOffDiagonalLabel(label) {
+                    const parsed = parseMatrixLabel(label.trim());
+                    if (!parsed) {
+                        return false;
+                    }
+                    return parsed.row !== parsed.col;
+                }
+
+                function getVisibleLabels() {
+                    if (!offDiagToggle.checked) return baseLabels;
+                    return baseLabels.filter(label => !isOffDiagonalLabel(label));
+                }
+
+                function rebuildLabelOptions() {
+                    const selected = new Set(Array.from(labelSelect.selectedOptions).map(option => option.value));
+                    labelSelect.innerHTML = "";
+                    const visibleLabels = getVisibleLabels();
+                    const hasVisibleSelection = visibleLabels.some(label => selected.has(label));
+                    visibleLabels.forEach(label => {
+                        const option = document.createElement("option");
+                        option.value = label;
+                        option.textContent = label;
+                        option.selected = !hasVisibleSelection ? true : selected.has(label);
+                        labelSelect.appendChild(option);
+                    });
+                }
+
+                function enableClickMultiSelect(select) {
+                    select.addEventListener("mousedown", function (event) {
+                        const option = event.target;
+                        if (option && option.tagName === "OPTION") {
+                            event.preventDefault();
+                            option.selected = !option.selected;
+                            select.dispatchEvent(new Event("change", { bubbles: true }));
+                        }
+                    });
+                    select.addEventListener("keydown", function (event) {
+                        if (event.key === " " || event.key === "Enter") {
+                            const option = select.options[select.selectedIndex];
+                            if (option) {
+                                event.preventDefault();
+                                option.selected = !option.selected;
+                                select.dispatchEvent(new Event("change", { bubbles: true }));
+                            }
+                        }
+                    });
+                }
+
+                function setSelectionByPrefix(prefix) {
+                    const upper = prefix.toUpperCase();
+                    Array.from(labelSelect.options).forEach(option => {
+                        option.selected = option.value.toUpperCase().startsWith(upper);
+                    });
+                    updatePlot(ignoreDiagonals);
+                }
 
                 function getZValues(ignoreDiagonals) {
                     return originalZValues.map((row, rowIndex) =>
@@ -849,31 +961,62 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
                 }
 
                 function updatePlot(ignoreDiagonals) {
-                    zValues = getZValues(ignoreDiagonals);
+                    const selectedLabels = Array.from(labelSelect.selectedOptions)
+                        .map(option => option.value)
+                        .filter(label => !offDiagToggle.checked || !isOffDiagonalLabel(label));
+                    if (selectedLabels.length === 0) {
+                        Plotly.react('plot', [], {
+                            paper_bgcolor: backgroundColor,
+                            plot_bgcolor: backgroundColor,
+                            font: { color: axisColor },
+                            margin: { t: 20, b: 20, l: 20, r: 20 }
+                        }, { responsive: true });
+                        return;
+                    }
+                    const labelIndex = new Map(xLabels.map((label, index) => [label, index]));
+                    const indices = selectedLabels.map(label => labelIndex.get(label)).filter(index => index !== undefined);
+                    const filteredLabels = indices.map(index => xLabels[index]);
+                    const rawZ = getZValues(ignoreDiagonals);
+                    const filteredZ = indices.map(rowIndex => indices.map(colIndex => rawZ[rowIndex][colIndex]));
+                    const filteredText = indices.map(rowIndex => indices.map(colIndex => textValues[rowIndex][colIndex]));
                     Plotly.react('plot', [{
-                        z: zValues,
-                        x: xLabels,
-                        y: yLabels,
+                        z: filteredZ,
+                        x: filteredLabels,
+                        y: filteredLabels,
                         type: 'heatmap',
                         colorscale: colorscale,
-                        text: textValues,
+                        text: filteredText,
                         texttemplate: '%{text}',
                         hoverinfo: 'x+y',
-                        xgap: 2.5, // x축 여백 추가
-                        ygap: 2.5, // y축 여백 추가
-                        colorbar: { showscale: false } // 색깔 레전드 숨기기
+                        xgap: 2.5,
+                        ygap: 2.5,
+                        colorbar: { showscale: false }
                     }], {
                         paper_bgcolor: backgroundColor,
                         plot_bgcolor: backgroundColor,
                         font: { color: axisColor },
-                        xaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor },
-                        yaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor },
-                        annotations: annotations,
-                        title: '${fileName}' // 파일 이름으로 타이틀 설정
+                        margin: { t: 20, b: 70, l: 70, r: 50 },
+                        xaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor, tickmode: 'array', tickvals: filteredLabels, ticktext: filteredLabels, tickfont: { size: 10, color: '#cccccc' } },
+                        yaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor, tickmode: 'array', tickvals: filteredLabels, ticktext: filteredLabels, tickfont: { size: 10, color: '#cccccc' } }
                     }, { responsive: true });
                 }
 
+                rebuildLabelOptions();
+                enableClickMultiSelect(labelSelect);
                 updatePlot(ignoreDiagonals);
+
+                document.getElementById("showTheta").addEventListener("click", () => setSelectionByPrefix("THETA"));
+                document.getElementById("showOmega").addEventListener("click", () => setSelectionByPrefix("OMEGA"));
+                document.getElementById("showSigma").addEventListener("click", () => setSelectionByPrefix("SIGMA"));
+                document.getElementById("showAll").addEventListener("click", () => {
+                    Array.from(labelSelect.options).forEach(option => option.selected = true);
+                    updatePlot(ignoreDiagonals);
+                });
+                labelSelect.addEventListener("change", () => updatePlot(ignoreDiagonals));
+                offDiagToggle.addEventListener("change", () => {
+                    rebuildLabelOptions();
+                    updatePlot(ignoreDiagonals);
+                });
             </script>
         </body>
         </html>
@@ -1173,7 +1316,7 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
             <style>
                 body { margin: 0; padding: 0; display: flex; height: 100vh; }
                 #plot { flex: 1; height: 100vh; background: transparent; }
@@ -1194,6 +1337,8 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                 .controls input[type="number"] { width: 60px; }
                 .button-row { display: flex; gap: 6px; }
                 .button-row button { flex: 1; }
+                .button-row { display: flex; gap: 6px; }
+                .button-row button { flex: 1; }
             </style>
         </head>
         <body>
@@ -1204,8 +1349,12 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                 <select id="groupSelect">
                     <option value="">None</option>${columnOptions}
                 </select>
-                <button id="deselectAll">Deselect All</button>
-                <button id="togglePlot">Toggle Splom</button>
+                <label><input id="syncHistYToggle" type="checkbox"> Sync Y</label>
+                <div class="button-row">
+                    <button id="selectAll">Select All</button>
+                    <button id="deselectAll">Deselect All</button>
+                </div>
+                <button id="togglePlot">Toggle SPLOM</button>
             </div>
             <div id="plot"></div>
             <script>
@@ -1256,6 +1405,11 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
 
                 document.getElementById("columnSelect").addEventListener("change", updatePlot);
                 document.getElementById("groupSelect").addEventListener("change", updatePlot);
+                document.getElementById("syncHistYToggle").addEventListener("change", updatePlot);
+                document.getElementById("selectAll").addEventListener("click", function () {
+                    Array.from(columnSelect.options).forEach(option => option.selected = true);
+                    updatePlot();
+                });
                 document.getElementById("deselectAll").addEventListener("click", function () {
                     Array.from(columnSelect.options).forEach(option => option.selected = false);
                     updatePlot();
@@ -1272,29 +1426,48 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                 function updatePlot() {
                     const selectedColumns = Array.from(document.getElementById("columnSelect").selectedOptions).map(option => option.value);
                     const groupByColumn = document.getElementById("groupSelect").value;
+                    const syncHistY = document.getElementById("syncHistYToggle").checked;
 
-                    // If no columns are selected, select all columns
-                    const columnsToPlot = selectedColumns.length > 0 ? selectedColumns : ${JSON.stringify(columns)};
+                    if (selectedColumns.length === 0) {
+                        Plotly.react('plot', [], {
+                            paper_bgcolor: '${backgroundColor}',
+                            plot_bgcolor: '${backgroundColor}',
+                            font: { color: '${axisColor}' },
+                            margin: { t: 20, b: 20, l: 40, r: 20 }
+                        }, { responsive: true });
+                        return;
+                    }
+                    const columnsToPlot = selectedColumns;
 
                     if (plotType === "histogram") {
-                        plotHistogram(columnsToPlot, groupByColumn);
+                        plotHistogram(columnsToPlot, groupByColumn, syncHistY);
                     } else {
                         plotCustomSplom(columnsToPlot, groupByColumn);
                     }
                 }
 
-                function plotHistogram(columnsToPlot, groupByColumn) {
+                function plotHistogram(columnsToPlot, groupByColumn, syncHistY) {
                     let plotData = [];
                     let showLegend = false;
                     if (groupByColumn) {
-                        const uniqueGroups = [...new Set(currentData.map(row => row[groupByColumn]))];
-                        const colors = Plotly.d3.scale.category10().range();
+                        const groupCache = new Map();
+                        currentData.forEach(row => {
+                            const key = row[groupByColumn];
+                            if (!groupCache.has(key)) {
+                                groupCache.set(key, []);
+                            }
+                            groupCache.get(key).push(row);
+                        });
+                        const uniqueGroups = Array.from(groupCache.keys());
+                        const colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
                         columnsToPlot.forEach((column, index) => {
                             uniqueGroups.forEach((group, groupIndex) => {
+                                const traceName = column + " | " + groupByColumn + "=" + group;
                                 plotData.push({
-                                    x: currentData.filter(row => row[groupByColumn] === group).map(row => row[column]),
+                                    x: groupCache.get(group).map(row => row[column]),
                                     type: 'histogram',
-                                    name: column + ' (' + group + ')',
+                                    name: traceName,
+                                    hovertemplate: column + "<br>" + groupByColumn + ": " + group + "<br>Count: %{y}<extra></extra>",
                                     marker: { color: colors[groupIndex % colors.length] },
                                     xaxis: 'x' + (index + 1),
                                     yaxis: 'y' + (index + 1),
@@ -1310,6 +1483,7 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                                 x: currentData.map(row => row[column]),
                                 type: 'histogram',
                                 name: column,
+                                hovertemplate: column + "<br>Count: %{y}<extra></extra>",
                                 marker: { color: "rgba(255, 102, 102, 0.8)" }, // Semi-transparent red color
                                 xaxis: 'x' + (index + 1),
                                 yaxis: 'y' + (index + 1),
@@ -1340,6 +1514,7 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                     const xGap = 0.02;
                     const yGap = 0.025;
                     const annotations = [];
+                    const shapes = [];
 
                     columnsToPlot.forEach((column, index) => {
                         const row = Math.floor(index / adjustedNumCols) + 1;
@@ -1348,8 +1523,12 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                         const xDomainEnd = col / adjustedNumCols - xGap;
                         const yDomainStart = 1 - row / numRows + yGap;
                         const yDomainEnd = 1 - (row - 1) / numRows - yGap;
-                        layout["xaxis" + (index + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: true, matches: null, tickangle: 90, gridcolor: '${borderColor}' };
-                        layout["yaxis" + (index + 1)] = { domain: [yDomainStart, yDomainEnd], showticklabels: true, autorange: true, matches: null, tickangle: 0, gridcolor: '${borderColor}' };
+                        layout["xaxis" + (index + 1)] = { domain: [xDomainStart, xDomainEnd], showticklabels: true, matches: null, tickangle: 90, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
+                        const yAxisKey = "yaxis" + (index + 1);
+                        layout[yAxisKey] = { domain: [yDomainStart, yDomainEnd], showticklabels: true, autorange: true, matches: null, tickangle: 0, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
+                        if (syncHistY && index > 0) {
+                            layout[yAxisKey].matches = "y";
+                        }
 
                         annotations.push({
                             x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
@@ -1400,26 +1579,37 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                     };
 
                     const annotations = [];
+                    const shapes = [];
                     const uniqueGroups = groupByColumn ? [...new Set(currentData.map(row => row[groupByColumn]))] : [''];
-                    const colors = Plotly.d3.scale.category10().range();
+                    const colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
 
+                    const cellGap = 0.008;
                     columnsToPlot.forEach((xCol, xIndex) => {
                         columnsToPlot.forEach((yCol, yIndex) => {
                             const index = xIndex * columnsToPlot.length + yIndex + 1;
+                            const x0 = xIndex / columnsToPlot.length + cellGap;
+                            const x1 = (xIndex + 1) / columnsToPlot.length - cellGap;
+                            const y0 = 1 - (yIndex + 1) / columnsToPlot.length + cellGap;
+                            const y1 = 1 - yIndex / columnsToPlot.length - cellGap;
                             if (xIndex === yIndex) {
                                 // Diagonal (histogram with label)
                                 uniqueGroups.forEach((group, groupIndex) => {
+                                    const traceName = groupByColumn
+                                        ? (xCol + " | " + groupByColumn + "=" + group)
+                                        : xCol;
                                     plotData.push({
                                         x: currentData.filter(row => groupByColumn ? row[groupByColumn] === group : true).map(row => row[xCol]),
                                         type: 'histogram',
-                                        marker: { color: colors[groupIndex % colors.length] },
+                                        name: traceName,
+                                        hovertemplate: xCol + (groupByColumn ? ("<br>" + groupByColumn + ": " + group) : "") + "<br>Count: %{y}<extra></extra>",
+                                        marker: { color: colors[groupIndex % colors.length], size: 5 },
                                         xaxis: 'x' + index,
                                         yaxis: 'y' + index,
                                         autobinx: true
                                     });
                                 });
-                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, matches: null, gridcolor: '${borderColor}' };
-                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, matches: null, gridcolor: '${borderColor}' };
+                                layout['xaxis' + index] = { domain: [x0, x1], showgrid: false, zeroline: false, showline: true, showticklabels: false, matches: null, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
+                                layout['yaxis' + index] = { domain: [y0, y1], showgrid: false, zeroline: false, showline: true, showticklabels: false, matches: null, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
 
                                 annotations.push({
                                     x: (xIndex + 0.5) / columnsToPlot.length,
@@ -1444,48 +1634,111 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                                 }
                             } else if (xIndex < yIndex) {
                                 // Upper triangle (scatter plot with regression line)
-                                const xData = currentData.map(row => row[xCol]);
-                                const yData = currentData.map(row => row[yCol]);
-                                const regression = linearRegression(xData, yData);
+                                const xRaw = currentData.map(row => row[xCol]);
+                                const yRaw = currentData.map(row => row[yCol]);
+                                const paired = xRaw.map((xVal, idx) => [xVal, yRaw[idx]])
+                                    .filter(pair => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+                                const xData = paired.map(pair => pair[0]);
+                                const yData = paired.map(pair => pair[1]);
+                                const groupLines = [];
 
                                 uniqueGroups.forEach((group, groupIndex) => {
+                                    const groupRows = groupByColumn
+                                        ? currentData.filter(row => row[groupByColumn] === group)
+                                        : currentData;
+                                    const groupPairs = groupRows
+                                        .map(row => [row[xCol], row[yCol]])
+                                        .filter(pair => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+                                    const groupX = groupPairs.map(pair => pair[0]);
+                                    const groupY = groupPairs.map(pair => pair[1]);
+                                    const traceName = groupByColumn
+                                        ? (xCol + " vs " + yCol + " | " + groupByColumn + "=" + group)
+                                        : (xCol + " vs " + yCol);
                                     plotData.push({
-                                        x: currentData.filter(row => groupByColumn ? row[groupByColumn] === group : true).map(row => row[xCol]),
-                                        y: currentData.filter(row => groupByColumn ? row[groupByColumn] === group : true).map(row => row[yCol]),
+                                        x: groupX,
+                                        y: groupY,
                                         mode: 'markers',
                                         type: 'scatter',
-                                        marker: { color: colors[groupIndex % colors.length] },
+                                        name: traceName,
+                                        hovertemplate: xCol + ": %{x}<br>" + yCol + ": %{y}" + (groupByColumn ? ("<br>" + groupByColumn + ": " + group) : "") + "<extra></extra>",
+                                        marker: { color: colors[groupIndex % colors.length], opacity: 0.6, size: 5 },
                                         xaxis: 'x' + index,
                                         yaxis: 'y' + index,
                                         showlegend: false
                                     });
+                                    if (groupByColumn && groupX.length > 1) {
+                                        const groupRegression = linearRegression(groupX, groupY);
+                                        const minX = Math.min(...groupX);
+                                        const maxX = Math.max(...groupX);
+                                        groupLines.push({
+                                            x: [minX, maxX],
+                                            y: [groupRegression.slope * minX + groupRegression.intercept, groupRegression.slope * maxX + groupRegression.intercept],
+                                            mode: 'lines',
+                                            type: 'scatter',
+                                        line: { color: colors[groupIndex % colors.length], width: 3.5 },
+                                            xaxis: 'x' + index,
+                                            yaxis: 'y' + index,
+                                            showlegend: false,
+                                            hoverinfo: "skip"
+                                        });
+                                    }
                                 });
 
-                                plotData.push({
-                                    x: [Math.min(...xData), Math.max(...xData)],
-                                    y: [regression.slope * Math.min(...xData) + regression.intercept, regression.slope * Math.max(...xData) + regression.intercept],
-                                    mode: 'lines',
-                                    type: 'scatter',
-                                    line: { color: 'rgba(255, 102, 0, 0.8)', width: 3 }, // Prominent regression line
-                                    xaxis: 'x' + index,
-                                    yaxis: 'y' + index,
-                                    showlegend: false
-                                });
+                                groupLines.forEach(lineTrace => plotData.push(lineTrace));
 
-                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
-                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
+                                if (!groupByColumn && xData.length > 1) {
+                                    const regression = linearRegression(xData, yData);
+                                    plotData.push({
+                                        x: [Math.min(...xData), Math.max(...xData)],
+                                        y: [regression.slope * Math.min(...xData) + regression.intercept, regression.slope * Math.max(...xData) + regression.intercept],
+                                        mode: 'lines',
+                                        type: 'scatter',
+                                        line: { color: 'rgba(255, 102, 0, 0.8)', width: 3 }, // Prominent regression line
+                                        xaxis: 'x' + index,
+                                        yaxis: 'y' + index,
+                                        showlegend: false,
+                                        hoverinfo: "skip"
+                                    });
+                                }
+
+                                layout['xaxis' + index] = { domain: [x0, x1], showgrid: false, zeroline: false, showline: true, showticklabels: true, tickangle: 90, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
+                                layout['yaxis' + index] = { domain: [y0, y1], showgrid: false, zeroline: false, showline: true, showticklabels: true, tickangle: 0, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
                             } else {
                                 // Lower triangle (text with Pearson correlation coefficient)
-                                const xData = currentData.map(row => row[xCol]);
-                                const yData = currentData.map(row => row[yCol]);
-                                const correlation = pearsonCorrelation(xData, yData).toFixed(2);
+                                const xRaw = currentData.map(row => row[xCol]);
+                                const yRaw = currentData.map(row => row[yCol]);
+                                const paired = xRaw.map((xVal, idx) => [xVal, yRaw[idx]])
+                                    .filter(pair => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+                                const xData = paired.map(pair => pair[0]);
+                                const yData = paired.map(pair => pair[1]);
+                                const correlationValue = xData.length > 1 ? pearsonCorrelation(xData, yData) : NaN;
+                                const hasCorrelation = Number.isFinite(correlationValue);
+                                const correlation = hasCorrelation ? correlationValue.toFixed(2) : 'NA';
                                 let significance = '';
-                                if (Math.abs(correlation) > 0.9) {
-                                    significance = '***';
-                                } else if (Math.abs(correlation) > 0.7) {
-                                    significance = '**';
-                                } else if (Math.abs(correlation) > 0.5) {
-                                    significance = '*';
+                                if (hasCorrelation) {
+                                    if (Math.abs(correlationValue) > 0.9) {
+                                        significance = '***';
+                                    } else if (Math.abs(correlationValue) > 0.7) {
+                                        significance = '**';
+                                    } else if (Math.abs(correlationValue) > 0.5) {
+                                        significance = '*';
+                                    }
+                                    const intensity = Math.min(1, Math.abs(correlationValue));
+                                    const alpha = 0.15 + 0.4 * intensity;
+                                    const fillColor = correlationValue >= 0
+                                        ? ("rgba(220, 80, 80, " + alpha + ")")
+                                        : ("rgba(80, 120, 220, " + alpha + ")");
+                                    shapes.push({
+                                        type: 'rect',
+                                        xref: 'paper',
+                                        yref: 'paper',
+                                        x0,
+                                        x1,
+                                        y0,
+                                        y1,
+                                        fillcolor: fillColor,
+                                        line: { width: 0 }
+                                    });
                                 }
                                 annotations.push({
                                     x: (xIndex + 0.5) / columnsToPlot.length,
@@ -1494,18 +1747,19 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
                                     yref: 'paper',
                                     text: 'r: ' + correlation + significance,
                                     showarrow: false,
-                                    font: { color: '${annotationColor}', size: 12 },
+                                    font: { color: '#cccccc', size: 12 },
                                     xanchor: 'center',
                                     yanchor: 'middle'
                                 });
 
-                                layout['xaxis' + index] = { domain: [xIndex / columnsToPlot.length, (xIndex + 1) / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
-                                layout['yaxis' + index] = { domain: [1 - (yIndex + 1) / columnsToPlot.length, 1 - yIndex / columnsToPlot.length], showgrid: false, zeroline: false, showline: true, showticklabels: false, gridcolor: '${borderColor}' };
+                                layout['xaxis' + index] = { domain: [x0, x1], showgrid: false, zeroline: false, showline: true, showticklabels: true, tickangle: 90, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
+                                layout['yaxis' + index] = { domain: [y0, y1], showgrid: false, zeroline: false, showline: true, showticklabels: true, tickangle: 0, gridcolor: '${borderColor}', tickfont: { color: '#cccccc' } };
                             }
                         });
                     });
 
                     layout.annotations = annotations;
+                    layout.shapes = shapes;
 
                     // Clear any existing plots before plotting new data
                     Plotly.purge('plot');

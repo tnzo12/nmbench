@@ -415,7 +415,7 @@ export function activate(context: vscode.ExtensionContext) {
             const data = await readNmTable_heatmap(fileName);
             const panel = vscode.window.createWebviewPanel(
                 'nmTablePlot',
-                baseFileName,
+                `Heatmap Plot: ${baseFileName}`,
                 vscode.ViewColumn.One,
                 { enableScripts: true }
             );
