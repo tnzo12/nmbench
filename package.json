@@ -10,9 +10,9 @@
     ],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
-    "version": "0.2.1",
+    "version": "0.3.2",
     "engines": {
-        "vscode": "^1.85.0"
+        "vscode": "^1.93.0"
     },
     "activationEvents": [],
     "main": "./out/extension.js",
@@ -73,6 +73,14 @@
                 }
             },
             {
+                "command": "extension.runUpdateInits",
+                "title": "Update inits"
+            },
+            {
+                "command": "extension.deleteModelFiles",
+                "title": "Delete with outputs"
+            },
+            {
                 "command": "extension.showModFileContextMenuNONMEM",
                 "title": "Run NONMEM command",
                 "icon": {
@@ -81,8 +89,12 @@
                 }
             },
             {
-                "command": "extension.showSumoCommand",
-                "title": "Model fit summary"
+                "command": "extension.watchLiveExt",
+                "title": "Monitor estimation",
+                "icon": {
+                    "dark": "./resources/dark/monitor.svg",
+                    "light": "./resources/light/monitor.svg"
+                }
             },
             {
                 "command": "extension.showRScriptCommandFromEditor",
@@ -159,13 +171,15 @@
                     "dark": "./resources/dark/snapshot.svg",
                     "light": "./resources/light/snapshot.svg"
                 }
+            },
+            {
+                "command": "extension.openNmbenchSettings",
+                "title": "Open nmbench Settings",
+                "category": "nmbench",
+                "icon": "$(gear)"
             }
         ],
         "keybindings": [
-            {
-                "command": "extension.showSumoCommand",
-                "key": "alt+D"
-            },
             {
                 "command": "extension.showLinkedFiles",
                 "key": "cmd+alt+R"
@@ -182,9 +196,9 @@
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "estimates",
-                    "title": "Estimates",
-                    "icon": "icon.png"
+                    "id": "modelDevelopment",
+                    "title": "Model Development",
+                    "icon": "resources/model-development.svg"
                 }
             ]
         },
@@ -199,6 +213,18 @@
                     "name": "nmbench: Estimates",
                     "type": "webview"
                 }
+            ],
+            "modelDevelopment": [
+                {
+                    "id": "modelBuilderView",
+                    "name": "nmbench: Model Builder",
+                    "type": "webview"
+                },
+                {
+                    "id": "amdView",
+                    "name": "nmbench: AMD Script Generator",
+                    "type": "webview"
+                }
             ]
         },
         "configuration": {
@@ -208,6 +234,17 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Hide folders whose name includes 'modelfit_dir' in the Mod File Viewer."
+                },
+                "nmbench.browser.fileExtensions": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "default": ["mod", "ctl"],
+                    "markdownDescription": "File extensions shown in the **NMBENCH: BROWSER** tree view. Enter without the leading dot (e.g., `mod`, `ctl`, `mdl`). Changes take effect after the tree view refreshes."
+                },
+                "nmbench.nonmem.executablePath": {
+                    "type": "string",
+                    "default": "/opt/nm75/util/nmfe75",
+                    "markdownDescription": "Path to the NONMEM executable (`nmfe*`). Used as the default when running NONMEM from a `.mod`/`.ctl` file. Examples: `/opt/nm75/util/nmfe75` on Linux/macOS, `C:\\nm75\\util\\nmfe75.bat` on Windows."
                 }
             }
         },
@@ -219,7 +256,7 @@
                     "group": "1.PsN operations"
                 },
                 {
-                    "command": "extension.showSumoCommand",
+                    "command": "extension.runUpdateInits",
                     "when": "viewItem == modFile",
                     "group": "1.PsN operations"
                 },
@@ -237,19 +274,34 @@
                     "command": "extension.manageRScriptCommand",
                     "when": "viewItem == modFile || viewItem == modFolder",
                     "group": "3.Rscript operations"
+                },
+                {
+                    "command": "extension.deleteModelFiles",
+                    "when": "viewItem == modFile",
+                    "group": "9.Delete"
                 }
             ],
             "view/title": [
                 {
-                    "command": "extension.refreshModFileViewer",
+                    "command": "extension.openNmbenchSettings",
                     "when": "view == modFileViewer",
-                    "group": "navigation"
+                    "group": "navigation@1"
+                },
+                {
+                    "command": "extension.watchLiveExt",
+                    "when": "view == modFileViewer",
+                    "group": "navigation@2"
                 },
                 {
                     "command": "extension.toggleHideModelFitDirs",
                     "when": "view == modFileViewer",
-                    "group": "navigation",
+                    "group": "navigation@3",
                     "toggled": "config.nmbench.modFileViewer.hideModelFitDirs"
+                },
+                {
+                    "command": "extension.refreshModFileViewer",
+                    "when": "view == modFileViewer",
+                    "group": "navigation@99"
                 },
                 {
                     "command": "extension.showLinkedFiles",
@@ -332,15 +384,15 @@
         "test": "vscode-test"
     },
     "devDependencies": {
-        "@types/vscode": "^1.85.0",
         "@types/mocha": "^10.0.6",
         "@types/node": "18.x",
+        "@types/vscode": "^1.93.0",
         "@typescript-eslint/eslint-plugin": "^7.7.1",
         "@typescript-eslint/parser": "^7.7.1",
-        "eslint": "^8.57.0",
-        "typescript": "^5.4.5",
         "@vscode/test-cli": "^0.0.9",
-        "@vscode/test-electron": "^2.3.9"
+        "@vscode/test-electron": "^2.3.9",
+        "eslint": "^8.57.0",
+        "typescript": "^5.4.5"
     },
     "license": "https://github.com/tnzo12/nmbench/blob/main/LICENSE",
     "bugs": {

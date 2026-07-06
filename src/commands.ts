@@ -11,6 +11,69 @@ function isTreeItemArray(nodes: any[]): nodes is (vscode.TreeItem & { uri: vscod
     return nodes.every(node => node instanceof vscode.TreeItem && 'uri' in node);
 }
 
+function showCommandWithOptions(
+    defaultCommand: string,
+    prompt: string
+): Promise<{ command: string; useTmux: boolean } | undefined> {
+    return new Promise(resolve => {
+        const qp = vscode.window.createQuickPick();
+        qp.value = defaultCommand;
+        qp.placeholder = prompt;
+        qp.canSelectMany = false;
+
+        const terminalItem: vscode.QuickPickItem = {
+            label: 'Terminal',
+            description: 'use default terminal',
+            iconPath: new vscode.ThemeIcon('terminal'),
+            alwaysShow: true
+        };
+        const tmuxItem: vscode.QuickPickItem = {
+            label: 'Run in tmux',
+            description: 'run in a persistent tmux session (requires separate installation)',
+            iconPath: new vscode.ThemeIcon('terminal', new vscode.ThemeColor('charts.green')),
+            alwaysShow: true
+        };
+
+        qp.items = [terminalItem, tmuxItem];
+        qp.activeItems = [terminalItem];
+
+        let settled = false;
+
+        qp.onDidAccept(() => {
+            if (settled) { return; }
+            settled = true;
+            const command = qp.value;
+            const useTmux = qp.activeItems[0]?.label === 'Run in tmux';
+            qp.dispose();
+            resolve({ command, useTmux });
+        });
+
+        qp.onDidHide(() => {
+            if (!settled) {
+                settled = true;
+                qp.dispose();
+                resolve(undefined);
+            }
+        });
+
+        qp.show();
+    });
+}
+
+function launchCommand(input: string, terminalName: string, cwd: string, useTmux: boolean) {
+    const shellPath = os.platform() === 'win32' ? 'cmd.exe' : undefined;
+    const terminal = vscode.window.createTerminal({ name: terminalName, cwd, shellPath });
+    if (useTmux) {
+        const sessionName = terminalName.replace(/[^a-zA-Z0-9_-]/g, '_');
+        // escape single quotes for tmux shell argument
+        const escaped = input.replace(/'/g, `'\\''`);
+        terminal.sendText(`tmux new-session -s '${sessionName}' '${escaped}'`);
+    } else {
+        terminal.sendText(input);
+    }
+    terminal.show();
+}
+
 // Function for PsN(Perl-speaks-NONMEM) run
 export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[]) {
     let uris: vscode.Uri[];
@@ -64,20 +127,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                     placeHolder: 'Select optional commands to add'
                 }).then(selectedOptions => {
                     const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-                    const shellPath = os.platform() === 'win32' ? 'cmd.exe' : undefined;
-
-                    let defaultCommandSyntax = `execute ${optionsString} ${fileNames}`;
-
-                    vscode.window.showInputBox({
-                        prompt: `Enter parameters for ${selectedCommand}:`,
-                        value: defaultCommandSyntax
-                    }).then(input => {
-                        if (input) {
-                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
-                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath), shellPath: shellPath });
-                            terminal.sendText(`${input}`);
-                            terminal.show();
-                        }
+                    showCommandWithOptions(`execute ${optionsString} ${fileNames}`, `Parameters for ${selectedCommand}:`).then(result => {
+                        if (result) { launchCommand(result.command, path.basename(uris[0].fsPath), path.dirname(uris[0].fsPath), result.useTmux); }
                     });
                 });
             } else if (selectedCommand === 'vpc') {
@@ -92,20 +143,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                     placeHolder: 'Select optional commands to add'
                 }).then(selectedOptions => {
                     const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-                    const shellPath = os.platform() === 'win32' ? 'cmd.exe' : undefined;
-
-                    let defaultCommandSyntax = `vpc -samples=200 -auto_bin=auto ${optionsString} ${fileNames}`;
-
-                    vscode.window.showInputBox({
-                        prompt: `Enter parameters for ${selectedCommand}:`,
-                        value: defaultCommandSyntax
-                    }).then(input => {
-                        if (input) {
-                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
-                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath), shellPath: shellPath });
-                            terminal.sendText(`${input}`);
-                            terminal.show();
-                        }
+                    showCommandWithOptions(`vpc -samples=200 -auto_bin=auto ${optionsString} ${fileNames}`, `Parameters for ${selectedCommand}:`).then(result => {
+                        if (result) { launchCommand(result.command, path.basename(uris[0].fsPath), path.dirname(uris[0].fsPath), result.useTmux); }
                     });
                 });
             } else if (selectedCommand === 'bootstrap') {
@@ -120,20 +159,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                     placeHolder: 'Select optional commands to add'
                 }).then(selectedOptions => {
                     const optionsString = selectedOptions ? selectedOptions.map(opt => opt.label).join(' ') : '';
-                    const shellPath = os.platform() === 'win32' ? 'cmd.exe' : undefined;
-
-                    let defaultCommandSyntax = `bootstrap -samples=100 -threads=4 ${optionsString} ${fileNames}`;
-
-                    vscode.window.showInputBox({
-                        prompt: `Enter parameters for ${selectedCommand}:`,
-                        value: defaultCommandSyntax
-                    }).then(input => {
-                        if (input) {
-                            const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
-                            const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath), shellPath: shellPath });
-                            terminal.sendText(`${input}`);
-                            terminal.show();
-                        }
+                    showCommandWithOptions(`bootstrap -samples=100 -threads=4 ${optionsString} ${fileNames}`, `Parameters for ${selectedCommand}:`).then(result => {
+                        if (result) { launchCommand(result.command, path.basename(uris[0].fsPath), path.dirname(uris[0].fsPath), result.useTmux); }
                     });
                 });
             } else {
@@ -193,18 +220,8 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
                         break;
                 }
 
-                vscode.window.showInputBox({
-                    prompt: `Enter parameters for ${selectedCommand}:`,
-                    value: defaultCommandSyntax
-                }).then(input => {
-                    if (input) {
-                        const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
-                        const shellPath = os.platform() === 'win32' ? 'cmd.exe' : undefined;
-
-                        const terminal = vscode.window.createTerminal({ name: terminalName, cwd: path.dirname(uris[0].fsPath), shellPath: shellPath });
-                        terminal.sendText(`${input}`);
-                        terminal.show();
-                    }
+                showCommandWithOptions(defaultCommandSyntax, `Parameters for ${selectedCommand}:`).then(result => {
+                    if (result) { launchCommand(result.command, path.basename(uris[0].fsPath), path.dirname(uris[0].fsPath), result.useTmux); }
                 });
             }
         }
@@ -231,7 +248,12 @@ export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeIt
 
     const fileNames = uris.map(uri => path.basename(uri.fsPath)).join(' ');
     const fileNamesLst = uris.map(uri => path.basename(uri.fsPath).replace(/\.(mod|ctl)$/i, '.lst')).join(' ');
-    const previousInput = context.globalState.get<string>('nonmemPath', '/opt/nm75/util/nmfe75');
+
+    // Prefer the user setting; fall back to legacy globalState (from < 0.3.2) then to the built-in default
+    const config = vscode.workspace.getConfiguration('nmbench');
+    const settingPath = config.get<string>('nonmem.executablePath', '');
+    const legacyPath = context.globalState.get<string>('nonmemPath', '');
+    const previousInput = settingPath || legacyPath || '/opt/nm75/util/nmfe75';
     let defaultCommandSyntax = `${previousInput} ${fileNames} ${fileNamesLst}`;
 
     vscode.window.showInputBox({
@@ -240,6 +262,8 @@ export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeIt
     }).then(input => {
         if (input) {
             const [nonmemPath] = input.split(' ', 1);
+            // Persist to the user setting so it appears in Settings UI; keep globalState in sync as a fallback
+            config.update('nonmem.executablePath', nonmemPath, vscode.ConfigurationTarget.Global);
             context.globalState.update('nonmemPath', nonmemPath);
             const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
             const shellPath = os.platform() === 'win32' ? 'cmd.exe' : undefined;
@@ -252,6 +276,96 @@ export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeIt
 }
 
 // Running Rscript
+export async function deleteModelFiles(nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[]) {
+    let uris: vscode.Uri[];
+    if (isUriArray(nodes)) {
+        uris = nodes;
+    } else if (isTreeItemArray(nodes)) {
+        uris = nodes.map(node => node.uri);
+    } else {
+        vscode.window.showErrorMessage('Invalid selection');
+        return;
+    }
+    if (uris.length === 0) { return; }
+
+    const RELATED_EXTS = ['.lst', '.ext', '.cov', '.cor', '.coi', '.phi', '.shk', '.grd', '.xml'];
+
+    // Collect all files/dirs to delete
+    const toDelete: string[] = [];
+    for (const uri of uris) {
+        const base = uri.fsPath.replace(/\.[^.]+$/, '');
+        const dir = path.dirname(uri.fsPath);
+
+        toDelete.push(uri.fsPath);
+
+        for (const ext of RELATED_EXTS) {
+            const candidate = base + ext;
+            if (fs.existsSync(candidate)) { toDelete.push(candidate); }
+        }
+
+        // PsN run directories: check command.txt inside each subdirectory
+        const modelFileName = path.basename(uri.fsPath);
+        try {
+            const entries = fs.readdirSync(dir);
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry);
+                if (!fs.statSync(fullPath).isDirectory()) { continue; }
+                const commandTxt = path.join(fullPath, 'command.txt');
+                if (!fs.existsSync(commandTxt)) { continue; }
+                const cmdContent = fs.readFileSync(commandTxt, 'utf-8').trim();
+                // extract last .mod/.ctl filename from command
+                const match = cmdContent.match(/(\S+\.(?:mod|ctl))\s*$/i);
+                if (match && path.basename(match[1]) === modelFileName) {
+                    toDelete.push(fullPath);
+                }
+            }
+        } catch { /* skip */ }
+    }
+
+    const uniqueItems = [...new Set(toDelete)];
+    const displayList = uniqueItems.map(p => `  • ${path.basename(p)}`).join('\n');
+    const answer = await vscode.window.showWarningMessage(
+        `Delete the following ${uniqueItems.length} item(s)?\n\n${displayList}`,
+        { modal: true },
+        'Delete'
+    );
+    if (answer !== 'Delete') { return; }
+
+    for (const item of uniqueItems) {
+        try {
+            const stat = fs.statSync(item);
+            if (stat.isDirectory()) {
+                fs.rmSync(item, { recursive: true, force: true });
+            } else {
+                fs.unlinkSync(item);
+            }
+        } catch (err) {
+            vscode.window.showErrorMessage(`Failed to delete ${path.basename(item)}: ${err}`);
+        }
+    }
+}
+
+export function runUpdateInits(nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[]) {
+    let uris: vscode.Uri[];
+    if (isUriArray(nodes)) {
+        uris = nodes;
+    } else if (isTreeItemArray(nodes)) {
+        uris = nodes.map(node => node.uri);
+    } else {
+        vscode.window.showErrorMessage('Invalid selection');
+        return;
+    }
+    if (uris.length === 0) { return; }
+
+    const fileNames = uris.map(uri => path.basename(uri.fsPath)).join(' ');
+    const outName = uris.length === 1 ? path.basename(uris[0].fsPath) : fileNames;
+    const defaultCmd = `update_inits ${fileNames} -out=${outName}`;
+
+    showCommandWithOptions(defaultCmd, 'Parameters for update_inits:').then(result => {
+        if (result) { launchCommand(result.command, path.basename(uris[0].fsPath), path.dirname(uris[0].fsPath), result.useTmux); }
+    });
+}
+
 export function showRScriptCommand(context: vscode.ExtensionContext, nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[]) {
     let uris: vscode.Uri[];
 
@@ -314,11 +428,12 @@ export function showRScriptCommand(context: vscode.ExtensionContext, nodes: (vsc
                 terminal.sendText(`Rscript "${tempScriptPath}"`);
                 terminal.show();
 
-                setTimeout(() => {
-                    if (fs.existsSync(tempScriptPath)) {
-                        fs.unlinkSync(tempScriptPath);
+                const disposable = vscode.window.onDidCloseTerminal(closedTerminal => {
+                    if (closedTerminal === terminal) {
+                        disposable.dispose();
+                        try { fs.unlinkSync(tempScriptPath); } catch { /* already removed */ }
                     }
-                }, 20000); // 20 seconds delay before deleting the temporary script
+                });
             }
         });
     });

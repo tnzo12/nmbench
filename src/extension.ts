@@ -4,16 +4,40 @@ import * as fs from 'fs';
 import * as util from 'util';
 import * as childProcess from 'child_process';
 import { EstimatesWebViewProvider } from './estview';
-import { ModFile, ModFolder, ModFileViewerProvider } from './modview';
-import { showModFileContextMenu, showModFileContextMenuNONMEM, showRScriptCommand } from './commands';
+import { AmdViewProvider } from './amdView';
+import { ModelBuilderViewProvider } from './modelBuilderView';
+import { ModFile, ModFolder, ModFileViewerProvider, nmbenchDecorationProvider, getModelFileRegex } from './modview';
+import { showModFileContextMenu, showModFileContextMenuNONMEM, showRScriptCommand, runUpdateInits, deleteModelFiles } from './commands';
 import { readNmTable, readNmTable_heatmap, readNmTable_ext } from './tblread';
-import { getWebviewContent, getWebviewContent_plotly, getWebviewContent_heatmap_plotly, getWebviewContent_table, getWebviewContent_hist } from './webview';
+import { getWebviewContent, getWebviewContent_plotly, getWebviewContent_heatmap_plotly, getWebviewContent_table, getWebviewContent_hist, getWebviewContent_liveExt } from './webview';
 
 const readFile = util.promisify(fs.readFile);
 
 
+async function seedDecorations(dirPath: string): Promise<void> {
+    let entries: string[];
+    try { entries = await fs.promises.readdir(dirPath); } catch { return; }
+    const modRegex = getModelFileRegex();
+    for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry);
+        try {
+            const stat = await fs.promises.stat(fullPath);
+            if (stat.isDirectory()) {
+                await seedDecorations(fullPath);
+            } else if (modRegex.test(entry)) {
+                const modFile = new ModFile(vscode.Uri.file(fullPath));
+                await modFile.initialize();
+            }
+        } catch { continue; }
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
-    const modFileViewerProvider = new ModFileViewerProvider();
+    const activeRunningTerminals = new Set<vscode.Terminal>();
+    const shellIntegrationSeenTerminals = new Set<vscode.Terminal>();
+    const modFileViewerProvider = new ModFileViewerProvider(activeRunningTerminals, shellIntegrationSeenTerminals);
+    context.subscriptions.push(vscode.window.registerFileDecorationProvider(nmbenchDecorationProvider));
+    vscode.workspace.workspaceFolders?.forEach(folder => seedDecorations(folder.uri.fsPath));
     const treeView = vscode.window.createTreeView('modFileViewer', {
         treeDataProvider: modFileViewerProvider,
         canSelectMany: true // 전체 트리에 다중 선택 허용
@@ -40,9 +64,19 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(toggleHide);
 
+  // Opens the Settings UI filtered to the nmbench section so users can edit configuration
+  // (file extensions, NONMEM path, hide toggle) without hunting through settings.json.
+  const openSettings = vscode.commands.registerCommand('extension.openNmbenchSettings', () => {
+    vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tnzo12.nmbench');
+  });
+  context.subscriptions.push(openSettings);
+
   // 설정 변경 감지 → 자동 새로고침
   const disp = vscode.workspace.onDidChangeConfiguration(e => {
-    if (e.affectsConfiguration('nmbench.modFileViewer.hideModelFitDirs')) {
+    if (
+      e.affectsConfiguration('nmbench.modFileViewer.hideModelFitDirs') ||
+      e.affectsConfiguration('nmbench.browser.fileExtensions')
+    ) {
       vscode.commands.executeCommand('extension.refreshModFileViewer');
     }
   });
@@ -226,8 +260,9 @@ export function activate(context: vscode.ExtensionContext) {
                 if (item instanceof ModFolder) {
                     try {
                         const files = await vscode.workspace.fs.readDirectory(item.uri);
+                        const modRegex = getModelFileRegex();
                         const modFiles = files
-                            .filter(([name, fileType]) => fileType === vscode.FileType.File && /\.(mod|ctl)$/i.test(name))
+                            .filter(([name, fileType]) => fileType === vscode.FileType.File && modRegex.test(name))
                             .map(([name]) => new ModFile(vscode.Uri.file(path.join(item.uri.fsPath, name))));
                         finalNodes = [...finalNodes, ...modFiles];
                     } catch (error) {
@@ -241,6 +276,16 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('extension.showModFileContextMenuNONMEM', (uri: vscode.Uri) => {
             showModFileContextMenuNONMEM([uri], context);
+        }),
+        vscode.commands.registerCommand('extension.runUpdateInits', (node?: ModFile) => {
+            const selectedNodes = node ? [node] : treeView.selection.filter(n => n instanceof ModFile);
+            if (selectedNodes.length === 0) { return; }
+            runUpdateInits(selectedNodes as ModFile[]);
+        }),
+        vscode.commands.registerCommand('extension.deleteModelFiles', (node?: ModFile) => {
+            const selectedNodes = node ? [node] : treeView.selection.filter(n => n instanceof ModFile);
+            if (selectedNodes.length === 0) { return; }
+            deleteModelFiles(selectedNodes as ModFile[]).then(() => modFileViewerProvider.refresh());
         }),
 
         vscode.commands.registerCommand('extension.showSumoCommand', async (node?: ModFile | ModFolder) => {
@@ -286,42 +331,38 @@ export function activate(context: vscode.ExtensionContext) {
 
             // 5) SUMO 명령 실행
             const options = { cwd: path.dirname(lstFiles[0].fsPath) };
-            vscode.window.showInputBox({
+            const input = await vscode.window.showInputBox({
                 prompt: 'Enter parameters for Sumo command:',
-                // 여러 파일이면 sumo_compare.txt, 아니면 단일 파일명_sumo.txt
                 value: `sumo ${lstFiles.map(file => path.basename(file.fsPath)).join(' ')}`
-            }).then(input => {
-                if (!input) { return; }
-                const outputFileName = (lstFiles.length > 1)
-                    ? 'sumo_compare.txt'
-                    : `${path.basename(lstFiles[0].fsPath, path.extname(lstFiles[0].fsPath))}_sumo.txt`;
-
-                const outputFilePath = path.join(path.dirname(lstFiles[0].fsPath), outputFileName);
-                const command = `${input} > "${outputFilePath}" 2>&1`;
-
-                childProcess.exec(command, options, (error, stdout, stderr) => {
-                    if (error) {
-                        vscode.window.showErrorMessage(`Error executing SUMO command: ${stderr}`);
-                        return;
-                    }
-
-                    fs.readFile(outputFilePath, 'utf-8', (err, data) => {
-                        if (err) {
-                            vscode.window.showErrorMessage(`Error reading SUMO output: ${err.message}`);
-                            return;
-                        }
-
-                        // SUMO 결과 확인 WebView
-                        const panel = vscode.window.createWebviewPanel(
-                            'sumoOutput',
-                            outputFileName,
-                            vscode.ViewColumn.One,
-                            {}
-                        );
-                        panel.webview.html = getWebviewContent(data);
-                    });
-                });
             });
+            if (!input) { return; }
+
+            const outputFileName = (lstFiles.length > 1)
+                ? 'sumo_compare.txt'
+                : `${path.basename(lstFiles[0].fsPath, path.extname(lstFiles[0].fsPath))}_sumo.txt`;
+            const outputFilePath = path.join(path.dirname(lstFiles[0].fsPath), outputFileName);
+            const command = `${input} > "${outputFilePath}" 2>&1`;
+
+            const execAsync = util.promisify(childProcess.exec);
+            try {
+                await execAsync(command, options);
+            } catch {
+                // sumo이 비정상 종료해도 출력 파일에 내용이 있을 수 있으므로 계속 진행
+            }
+
+            try {
+                const data = await fs.promises.readFile(outputFilePath, 'utf-8');
+                const panel = vscode.window.createWebviewPanel(
+                    'sumoOutput',
+                    outputFileName,
+                    vscode.ViewColumn.One,
+                    {}
+                );
+                panel.webview.html = getWebviewContent(data);
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Error reading SUMO output: ${message}`);
+            }
         }),
 
         // for managing Rscript foler (user-definable)
@@ -528,6 +569,168 @@ export function activate(context: vscode.ExtensionContext) {
 
             vscode.commands.executeCommand('extension.showHeatmap', vscode.Uri.file(selected.description!));
         }),
+        vscode.commands.registerCommand('extension.watchLiveExt', async () => {
+            const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+            const panel = vscode.window.createWebviewPanel(
+                'liveExt', 'Estimation Monitor',
+                vscode.ViewColumn.Two,
+                { enableScripts: true, retainContextWhenHidden: true }
+            );
+            panel.webview.html = getWebviewContent_liveExt([], theme);
+
+            // runName → absolute filePath
+            const runMap = new Map<string, string>();
+            let activeInterval: ReturnType<typeof setInterval> | undefined;
+
+            const toRunName = (fsPath: string): string => {
+                const wsFolders = vscode.workspace.workspaceFolders ?? [];
+                const wsFolder  = wsFolders.find(w => fsPath.startsWith(w.uri.fsPath));
+                return wsFolder ? path.relative(wsFolder.uri.fsPath, path.dirname(fsPath)) : path.dirname(fsPath);
+            };
+
+            // Scan workspace for all modelfit_dir*/NM_run*/psn.ext
+            // Uses fs.promises directly to bypass files.watcherExclude / search.exclude settings
+            const scanWorkspace = async () => {
+                const wsFolders = vscode.workspace.workspaceFolders ?? [];
+                for (const wf of wsFolders) {
+                    let mfDirs: string[];
+                    try { mfDirs = await fs.promises.readdir(wf.uri.fsPath); } catch { continue; }
+                    for (const entry of mfDirs) {
+                        if (!entry.toLowerCase().startsWith('modelfit_dir')) { continue; }
+                        const mfPath = path.join(wf.uri.fsPath, entry);
+                        let nmDirs: string[];
+                        try { nmDirs = await fs.promises.readdir(mfPath); } catch { continue; }
+                        for (const sub of nmDirs) {
+                            if (!/^NM_run/i.test(sub)) { continue; }
+                            const psnExt = path.join(mfPath, sub, 'psn.ext');
+                            try {
+                                await fs.promises.access(psnExt);
+                                const runName = path.relative(wf.uri.fsPath, path.dirname(psnExt));
+                                runMap.set(runName, psnExt);
+                            } catch { continue; }
+                        }
+                    }
+                }
+                panel.webview.postMessage({ command: 'populate', runs: [...runMap.keys()] });
+            };
+            scanWorkspace();
+
+            // Poll for newly created psn.ext every 10s (bypasses watcherExclude)
+            const newFileInterval = setInterval(async () => {
+                const before = runMap.size;
+                await scanWorkspace();
+                // scanWorkspace already posts populate; addRun is handled by comparing sizes
+            }, 10000);
+
+            // Handle webview messages
+            panel.webview.onDidReceiveMessage(async msg => {
+                if (msg.command === 'select') {
+                    const filePath = runMap.get(msg.runName);
+                    if (!filePath) { return; }
+
+                    // Initial read
+                    const data = await readNmTable_ext(filePath).catch(() => []);
+                    panel.webview.postMessage({ command: 'data', runName: msg.runName, data });
+
+                    // Poll for changes every 3s using fs.promises.stat + mtime
+                    // (bypasses VS Code's files.watcherExclude)
+                    clearInterval(activeInterval);
+                    let lastMtime = (await fs.promises.stat(filePath).catch(() => null))?.mtimeMs ?? 0;
+                    activeInterval = setInterval(async () => {
+                        const stat = await fs.promises.stat(filePath).catch(() => null);
+                        if (!stat || stat.mtimeMs <= lastMtime) { return; }
+                        lastMtime = stat.mtimeMs;
+                        const updated = await readNmTable_ext(filePath).catch(() => []);
+                        panel.webview.postMessage({ command: 'data', runName: msg.runName, data: updated });
+                    }, 3000);
+                } else if (msg.command === 'refresh') {
+                    scanWorkspace();
+                }
+            });
+
+            panel.onDidDispose(() => { clearInterval(activeInterval); clearInterval(newFileInterval); });
+        }),
+
+        vscode.commands.registerCommand('extension.watchLiveExtFromTreeView', async (node?: ModFile) => {
+            const selected = node ?? (treeView.selection.find(n => n instanceof ModFile) as ModFile | undefined);
+            if (!selected) { return; }
+
+            const modelFileName = path.basename(selected.uri.fsPath);
+            const dir = path.dirname(selected.uri.fsPath);
+
+            // Find all PsN run dirs whose command.txt references this model file
+            interface RunDir { label: string; description: string; psnExt: string; }
+            const candidates: RunDir[] = [];
+            try {
+                const entries = await fs.promises.readdir(dir);
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry);
+                    if (!(await fs.promises.stat(fullPath)).isDirectory()) { continue; }
+                    const commandTxt = path.join(fullPath, 'command.txt');
+                    try {
+                        const cmd = (await fs.promises.readFile(commandTxt, 'utf-8')).trim();
+                        const match = cmd.match(/(\S+\.(?:mod|ctl))\s*$/i);
+                        if (!match || path.basename(match[1]) !== modelFileName) { continue; }
+                    } catch { continue; }
+
+                    // Find psn.ext inside NM_run* subdirs
+                    try {
+                        const subs = await fs.promises.readdir(fullPath);
+                        for (const sub of subs) {
+                            if (!/^NM_run/i.test(sub)) { continue; }
+                            const psnExt = path.join(fullPath, sub, 'psn.ext');
+                            try {
+                                await fs.promises.access(psnExt);
+                                const mtime = (await fs.promises.stat(psnExt)).mtime.toLocaleString();
+                                candidates.push({ label: entry, description: `last modified: ${mtime}`, psnExt });
+                            } catch { continue; }
+                        }
+                    } catch { continue; }
+                }
+            } catch { /* skip */ }
+
+            if (candidates.length === 0) {
+                vscode.window.showInformationMessage(`No estimation run found for ${modelFileName}.`);
+                return;
+            }
+
+            // Pick run if multiple
+            let chosen: RunDir;
+            if (candidates.length === 1) {
+                chosen = candidates[0];
+            } else {
+                const pick = await vscode.window.showQuickPick(candidates, {
+                    placeHolder: `Select run to monitor for ${modelFileName}`
+                });
+                if (!pick) { return; }
+                chosen = pick;
+            }
+
+            // Open monitor panel for chosen psn.ext
+            const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+            const panel = vscode.window.createWebviewPanel(
+                'liveExt', `Monitor: ${chosen.label}`,
+                vscode.ViewColumn.Two,
+                { enableScripts: true, retainContextWhenHidden: true }
+            );
+            const runName = chosen.label;
+            const data = await readNmTable_ext(chosen.psnExt).catch(() => []);
+            panel.webview.html = getWebviewContent_liveExt([{ runName, data }], theme);
+            panel.webview.postMessage({ command: 'populate', runs: [runName] });
+            panel.webview.postMessage({ command: 'data', runName, data });
+
+            let lastMtime = (await fs.promises.stat(chosen.psnExt).catch(() => null))?.mtimeMs ?? 0;
+            const pollInterval = setInterval(async () => {
+                const stat = await fs.promises.stat(chosen.psnExt).catch(() => null);
+                if (!stat || stat.mtimeMs <= lastMtime) { return; }
+                lastMtime = stat.mtimeMs;
+                const updated = await readNmTable_ext(chosen.psnExt).catch(() => []);
+                panel.webview.postMessage({ command: 'data', runName, data: updated });
+            }, 3000);
+
+            panel.onDidDispose(() => clearInterval(pollInterval));
+        }),
+
         vscode.commands.registerCommand('extension.snapshotEstimatesView', () => {
             if (!estimatesProvider) {
                 vscode.window.showErrorMessage('Estimates view is not ready.');
@@ -555,33 +758,55 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    treeView.onDidChangeSelection(event => {
-        const selected = event.selection[0];
-        if (selected instanceof ModFile) {
-            vscode.commands.executeCommand('extension.openModFile', selected.uri);
-        }
-    });
 
     vscode.window.onDidChangeActiveTextEditor(editor => {
-        if (editor && editor.document.uri.scheme === 'file' && editor.document.uri.fsPath.match(/\.(mod|ctl)$/)) {
-            modFileViewerProvider.getModFileOrFolder(editor.document.uri).then(item => {
-                if (item) {
-                    treeView.reveal(item, { select: true, focus: true });
-                }
-            });
+        if (!editor || editor.document.uri.scheme !== 'file') { return; }
+        const fsPath = editor.document.uri.fsPath;
+        let modUri: vscode.Uri | undefined;
+        if (getModelFileRegex().test(fsPath)) {
+            modUri = editor.document.uri;
+        } else if (fsPath.match(/\.lst$/)) {
+            const base = fsPath.replace(/\.[^.]+$/, '');
+            if (fs.existsSync(base + '.mod')) {
+                modUri = vscode.Uri.file(base + '.mod');
+            } else if (fs.existsSync(base + '.ctl')) {
+                modUri = vscode.Uri.file(base + '.ctl');
+            }
+        }
+        if (modUri) {
+            treeView.reveal(new ModFile(modUri), { select: true, focus: true }).then(
+                undefined, () => { /* 워크스페이스 밖이거나 트리에 없는 경우 무시 */ }
+            );
         }
     });
 
-    vscode.window.onDidOpenTerminal(() => {
-        modFileViewerProvider.refresh();
-    });
+    let terminalRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const debouncedTerminalRefresh = () => {
+        if (terminalRefreshTimer) { clearTimeout(terminalRefreshTimer); }
+        terminalRefreshTimer = setTimeout(() => modFileViewerProvider.refresh(), 200);
+    };
 
-    vscode.window.onDidCloseTerminal(() => {
-        modFileViewerProvider.refresh();
+    vscode.window.onDidOpenTerminal(debouncedTerminalRefresh);
+    vscode.window.onDidCloseTerminal(terminal => {
+        activeRunningTerminals.delete(terminal);
+        shellIntegrationSeenTerminals.delete(terminal);
+        debouncedTerminalRefresh();
     });
+    vscode.window.onDidChangeActiveTerminal(debouncedTerminalRefresh);
+    const isModelTerminal = (terminal: vscode.Terminal) =>
+        getModelFileRegex().test(terminal.name);
 
-    vscode.window.onDidChangeActiveTerminal(() => {
-        modFileViewerProvider.refresh();
+    vscode.window.onDidStartTerminalShellExecution(event => {
+        shellIntegrationSeenTerminals.add(event.terminal);
+        if (isModelTerminal(event.terminal)) {
+            activeRunningTerminals.add(event.terminal);
+            debouncedTerminalRefresh();
+        }
+    });
+    vscode.window.onDidEndTerminalShellExecution(event => {
+        if (activeRunningTerminals.delete(event.terminal)) {
+            debouncedTerminalRefresh();
+        }
     });
     context.subscriptions.push(
         vscode.commands.registerCommand('extension.readNmTableAndPlot', async () => {
@@ -643,6 +868,16 @@ export function activate(context: vscode.ExtensionContext) {
     estimatesProvider = provider;
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(EstimatesWebViewProvider.viewType, provider)
+    );
+
+    const amdProvider = new AmdViewProvider(context);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(AmdViewProvider.viewType, amdProvider)
+    );
+
+    const modelBuilderProvider = new ModelBuilderViewProvider(context);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(ModelBuilderViewProvider.viewType, modelBuilderProvider)
     );
 
     vscode.window.onDidChangeActiveTextEditor(() => provider.updateTable());

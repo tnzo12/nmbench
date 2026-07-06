@@ -53,13 +53,12 @@ export function getWebviewContent(output: string): string {
 }
 export function getWebviewContent_plotly(data: any[], theme: string): string {
     const columns = data.length > 0 ? Object.keys(data[0]) : [];
-
-    // Determine colors based on the theme
     const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
     const axisColor = isDarkTheme ? 'white' : 'black';
-    const backgroundColor = 'rgba(0, 0, 0, 0)'; // Transparent
+    const backgroundColor = 'rgba(0, 0, 0, 0)';
     const controlTextColor = isDarkTheme ? 'white' : 'black';
     const controlBg = isDarkTheme ? 'rgba(0,0,0,0.25)' : 'rgba(255, 255, 255, 0.25)';
+    const sectionColor = isDarkTheme ? '#aaa' : '#666';
 
     return `
         <!DOCTYPE html>
@@ -71,26 +70,34 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
             <style>
                 body { margin: 0; padding: 0; display: flex; height: 100vh; }
                 #plot { flex: 1; height: 100vh; background: transparent; }
-                .controls { 
-                    width: 112px;
-                    background: ${controlBg}; 
-                    padding: 10px; 
+                .controls {
+                    width: 140px;
+                    background: ${controlBg};
+                    padding: 10px;
                     border-right: 1px solid rgba(0,0,0,0.1);
-                    display: flex; 
-                    flex-direction: column; 
-                    gap: 6px; 
-                    color: ${controlTextColor}; 
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    color: ${controlTextColor};
                     overflow: auto;
+                    flex-shrink: 0;
                 }
                 .controls label, .controls select, .controls button, .controls input { font-size: 0.8em; }
-                #columnSelect { min-height: 9.5em; }
-                #groupValues { min-height: 9.5em; }
-                .controls button { margin-top: 4px; }
-                .controls > button { width: 100%; }
-                .button-row button { width: auto; }
-                .button-row { width: 100%; justify-content: center; }
+                select { width: 100%; box-sizing: border-box; }
+                #ySelect       { min-height: 7em; }
+                #groupValues   { min-height: 5em; }
+                #filterValues  { min-height: 4em; }
+                .controls button { margin-top: 2px; cursor: pointer; width: 100%; }
+                .sec {
+                    font-size: 0.75em; font-weight: bold;
+                    margin-top: 6px; padding-top: 4px;
+                    border-top: 1px solid rgba(128,128,128,0.3);
+                    color: ${sectionColor};
+                }
+                .btn-row { display: flex; gap: 3px; }
+                .btn-row button { flex: 1; width: auto; padding: 2px; }
                 .controls input[type="number"] { width: 60px; }
-                .inline-row { display: flex; gap: 8px; align-items: center; }
+                .inline-row { display: flex; gap: 6px; align-items: center; }
             </style>
         </head>
         <body>
@@ -98,19 +105,32 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                 <label for="xSelect">X-axis:</label>
                 <select id="xSelect">${columns.map(col => `<option value="${col}" ${col === "TIME" ? "selected" : ""}>${col}</option>`).join('')}</select>
                 <label for="ySelect">Y-axis:</label>
-                <select id="ySelect" multiple size="6">${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
-                <label for="groupSelect">Group variable:</label>
+                <select id="ySelect" multiple size="5">${columns.map(col => `<option value="${col}" ${col === "DV" ? "selected" : ""}>${col}</option>`).join('')}</select>
+
+                <label for="modeSelect">Mode:</label>
+                <select id="modeSelect">
+                    <option value="lines+markers" selected>lines+markers</option>
+                    <option value="markers">markers</option>
+                    <option value="lines">lines</option>
+                </select>
+                <label><input id="logXToggle" type="checkbox"> Log X</label>
+                <label><input id="logYToggle" type="checkbox"> Log Y</label>
+
+                <div class="sec">Group</div>
+                <label for="groupSelect">Group var:</label>
                 <select id="groupSelect">
                     <option value="">(none)</option>
                     ${columns.map(col => `<option value="${col}" ${col === "ID" ? "selected" : ""}>${col}</option>`).join('')}
                 </select>
-                <label for="groupValues">Group values:</label>
-                <select id="groupValues" multiple size="6"></select>
-                <label for="subgroupSelect">Sub-group variable:</label>
+                <label for="groupValues">Values:</label>
+                <select id="groupValues" multiple size="5"></select>
+                <label for="subgroupSelect">Sub-group:</label>
                 <select id="subgroupSelect">
                     <option value="">(none)</option>
                     ${columns.map(col => `<option value="${col}">${col}</option>`).join('')}
                 </select>
+
+                <div class="sec">Display</div>
                 <label><input id="subplotToggle" type="checkbox" checked> Subplot (facet)</label>
                 <label><input id="syncXToggle" type="checkbox"> Sync X</label>
                 <label><input id="syncYToggle" type="checkbox"> Sync Y</label>
@@ -118,9 +138,33 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     <label><input id="autoTileWidth" type="checkbox" checked> Auto width</label>
                 </div>
                 <div class="inline-row">
-                    <label for="minTileWidth">Min tile width:</label>
+                    <label for="minTileWidth">Min px:</label>
                     <input id="minTileWidth" type="number" min="50" step="10" value="250" disabled>
                 </div>
+
+                <div class="sec">Row Filter</div>
+                <label>Column:</label>
+                <select id="filterCol">
+                    <option value="">(none)</option>
+                    ${columns.map(col => `<option value="${col}">${col}</option>`).join('')}
+                </select>
+                <select id="filterValues" multiple size="4"></select>
+                <div class="btn-row">
+                    <button id="btnEvid0">EVID=0</button>
+                    <button id="btnMdv0">MDV=0</button>
+                </div>
+
+                <div class="sec">Presets</div>
+                <div class="btn-row">
+                    <button id="presetDvPred">DV/PRED</button>
+                    <button id="presetDvIpred">DV/IPRD</button>
+                </div>
+                <div class="btn-row">
+                    <button id="presetCwresTime">CWRES/T</button>
+                    <button id="presetCwresPred">CWRES/P</button>
+                </div>
+
+                <div class="sec">Other</div>
                 <button id="addYXLine">Add y=x Line</button>
             </div>
             <div id="plot"></div>
@@ -128,22 +172,22 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                 const vscode = acquireVsCodeApi();
                 let yxLineAdded = false;
                 let subplotMode = true;
-                let syncScales = false;
                 let syncX = false;
                 let syncY = false;
-                let xTicksVisible = true;
-                let yTicksVisible = true;
                 let hasPlot = false;
                 const colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"];
 
                 let currentData = [];
                 let uniqueValuesByKey = {};
 
+                function debounce(fn, wait) {
+                    let timer;
+                    return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); };
+                }
+
                 function enableClickMultiSelect(selectId) {
                     const select = document.getElementById(selectId);
-                    if (!select) {
-                        return;
-                    }
+                    if (!select) { return; }
                     select.addEventListener("mousedown", function (event) {
                         const option = event.target;
                         if (option && option.tagName === "OPTION") {
@@ -152,106 +196,66 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                             select.dispatchEvent(new Event("change", { bubbles: true }));
                         }
                     });
-                    select.addEventListener("keydown", function (event) {
-                        if (event.key === " " || event.key === "Enter") {
-                            const option = select.options[select.selectedIndex];
-                            if (option) {
-                                event.preventDefault();
-                                option.selected = !option.selected;
-                                select.dispatchEvent(new Event("change", { bubbles: true }));
-                            }
-                        }
-                    });
                 }
 
                 enableClickMultiSelect("ySelect");
                 enableClickMultiSelect("groupValues");
-
-                document.getElementById("groupSelect").addEventListener("change", function () {
-                    updateSelectValues("group");
-                    updatePlot();
-                });
-
-                document.getElementById("subgroupSelect").addEventListener("change", function () {
-                    // no value list needed
-                    updatePlot();
-                });
-
-                document.getElementById("xSelect").addEventListener("change", updatePlot);
-                document.getElementById("ySelect").addEventListener("change", updatePlot);
-                document.getElementById("groupValues").addEventListener("change", updatePlot);
-                document.getElementById("minTileWidth").addEventListener("input", updatePlot);
-
-                document.getElementById("addYXLine").addEventListener("click", function () {
-                    yxLineAdded = !yxLineAdded;
-                    updatePlot();
-                });
-
-                document.getElementById("subplotToggle").addEventListener("change", function (event) {
-                    subplotMode = event.target.checked;
-                    updatePlot();
-                });
-                document.getElementById("syncXToggle").addEventListener("change", function (event) {
-                    syncX = event.target.checked;
-                    syncScales = syncX || syncY;
-                    updatePlot();
-                });
-                document.getElementById("syncYToggle").addEventListener("change", function (event) {
-                    syncY = event.target.checked;
-                    syncScales = syncX || syncY;
-                    updatePlot();
-                });
-
- 
-
-                document.getElementById("autoTileWidth").addEventListener("change", function (event) {
-                    document.getElementById("minTileWidth").disabled = event.target.checked;
-                    updatePlot();
-                });
-
-                document.getElementById("minTileWidth").disabled = document.getElementById("autoTileWidth").checked;
-
-                const resizePlot = debounce(() => {
-                    updatePlot();
-                }, 150);
-                window.addEventListener("resize", resizePlot);
-
-                function debounce(fn, wait) {
-                    let timer;
-                    return (...args) => {
-                        clearTimeout(timer);
-                        timer = setTimeout(() => fn(...args), wait);
-                    };
-                }
+                enableClickMultiSelect("filterValues");
 
                 function buildUniqueValues() {
                     const keys = Object.keys(currentData[0] || {});
                     uniqueValuesByKey = {};
                     keys.forEach((key) => {
                         const values = new Set();
-                        for (const row of currentData) {
-                            values.add(String(row[key]));
-                        }
-                        uniqueValuesByKey[key] = Array.from(values);
+                        for (const row of currentData) { values.add(String(row[key])); }
+                        uniqueValuesByKey[key] = Array.from(values).sort((a, b) => {
+                            const na = Number(a), nb = Number(b);
+                            return isNaN(na) || isNaN(nb) ? a.localeCompare(b) : na - nb;
+                        });
                     });
                 }
 
                 function updateSelectValues(type) {
-                    if (type !== "group") {
-                        return;
-                    }
+                    if (type !== "group") { return; }
                     const key = document.getElementById("groupSelect").value;
                     const target = document.getElementById("groupValues");
-                    if (!key) {
-                        target.innerHTML = "";
-                        return;
-                    }
+                    if (!key) { target.replaceChildren(); return; }
                     const values = uniqueValuesByKey[key] || [];
-                    target.innerHTML = values.map(val => \`<option value="\${val}">\${val}</option>\`).join('');
+                    target.replaceChildren();
+                    values.forEach(val => {
+                        const opt = document.createElement('option');
+                        opt.value = String(val);
+                        opt.textContent = String(val);
+                        opt.selected = true;
+                        target.appendChild(opt);
+                    });
+                }
+
+                function updateFilterValues() {
+                    const key = document.getElementById("filterCol").value;
+                    const prev = new Set(getSelectedValues("filterValues"));
+                    const target = document.getElementById("filterValues");
+                    if (!key) { target.replaceChildren(); return; }
+                    const values = uniqueValuesByKey[key] || [];
+                    target.replaceChildren();
+                    values.forEach(val => {
+                        const opt = document.createElement('option');
+                        opt.value = opt.textContent = String(val);
+                        if (prev.size && prev.has(String(val))) { opt.selected = true; }
+                        target.appendChild(opt);
+                    });
                 }
 
                 function getSelectedValues(selectId) {
-                    return Array.from(document.getElementById(selectId).selectedOptions).map(option => option.value);
+                    return Array.from(document.getElementById(selectId).selectedOptions).map(o => o.value);
+                }
+
+                function applyRowFilter(data) {
+                    const filterKey = document.getElementById("filterCol").value;
+                    const filterValues = getSelectedValues("filterValues");
+                    if (!filterKey || !filterValues.length) { return data; }
+                    const filterSet = new Set(filterValues);
+                    return data.filter(row => filterSet.has(String(row[filterKey])));
                 }
 
                 function groupRows(data, groupKey, subgroupKey, groupValues) {
@@ -260,44 +264,38 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     for (const row of data) {
                         const groupVal = groupKey ? String(row[groupKey]) : "All";
                         const subgroupVal = subgroupKey ? String(row[subgroupKey]) : "All";
-                        if (groupSet && !groupSet.has(groupVal)) {
-                            continue;
-                        }
-                        if (!grouped.has(groupVal)) {
-                            grouped.set(groupVal, new Map());
-                        }
+                        if (groupSet && !groupSet.has(groupVal)) { continue; }
+                        if (!grouped.has(groupVal)) { grouped.set(groupVal, new Map()); }
                         const subgroupMap = grouped.get(groupVal);
-                        if (!subgroupMap.has(subgroupVal)) {
-                            subgroupMap.set(subgroupVal, []);
-                        }
+                        if (!subgroupMap.has(subgroupVal)) { subgroupMap.set(subgroupVal, []); }
                         subgroupMap.get(subgroupVal).push(row);
                     }
                     return grouped;
                 }
 
                 function updatePlot() {
-                    if (!currentData.length) {
-                        return;
-                    }
+                    if (!currentData.length) { return; }
                     const x = document.getElementById("xSelect").value;
                     const yOptions = getSelectedValues("ySelect");
-                    if (!yOptions.length) {
-                        return;
-                    }
+                    if (!yOptions.length) { return; }
                     const groupKey = document.getElementById("groupSelect").value;
                     const subgroupKey = document.getElementById("subgroupSelect").value;
                     const groupValues = getSelectedValues("groupValues");
+                    const mode = document.getElementById("modeSelect").value;
+                    const logX = document.getElementById("logXToggle").checked;
+                    const logY = document.getElementById("logYToggle").checked;
                     const minTileWidthInput = document.getElementById("minTileWidth");
                     const autoTileWidth = document.getElementById("autoTileWidth").checked;
                     const minTileWidth = parseInt(minTileWidthInput.value, 10) || 250;
 
-                    const grouped = groupRows(currentData, groupKey, subgroupKey, groupValues);
+                    const filteredData = applyRowFilter(currentData);
+                    const grouped = groupRows(filteredData, groupKey, subgroupKey, groupValues);
                     const groups = Array.from(grouped.keys());
                     const figData = [];
                     const dashPatterns = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"];
                     const tickFontSize = 10;
-                    const tickColor = "#cccccc";
-                    const gridColor = "#cccccc";
+                    const tickColor = "${axisColor}";
+                    const gridColor = "${isDarkTheme ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}";
                     const layout = {
                         showlegend: true,
                         legend: { orientation: "h", y: -0.06 },
@@ -312,14 +310,10 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     const subgroupSet = new Set();
                     groups.forEach((group) => {
                         const subgroupGroups = grouped.get(group);
-                        for (const [subgroupVal] of subgroupGroups.entries()) {
-                            subgroupSet.add(subgroupVal);
-                        }
+                        for (const [subgroupVal] of subgroupGroups.entries()) { subgroupSet.add(subgroupVal); }
                     });
                     const subgroupList = Array.from(subgroupSet);
-                    const colorIndexBySubgroup = new Map(
-                        subgroupList.map((val, idx) => [val, idx])
-                    );
+                    const colorIndexBySubgroup = new Map(subgroupList.map((val, idx) => [val, idx]));
                     const seriesCache = new Map();
                     groups.forEach((group) => {
                         const subgroupGroups = grouped.get(group);
@@ -327,13 +321,12 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                         for (const [subgroupVal, rows] of subgroupGroups.entries()) {
                             const xVals = rows.map(row => row[x]);
                             const yValsByKey = new Map();
-                            yOptions.forEach((yAxis) => {
-                                yValsByKey.set(yAxis, rows.map(row => row[yAxis]));
-                            });
+                            yOptions.forEach((yAxis) => { yValsByKey.set(yAxis, rows.map(row => row[yAxis])); });
                             subgroupCache.set(subgroupVal, { xVals, yValsByKey });
                         }
                         seriesCache.set(group, subgroupCache);
                     });
+
                     const useSubplot = subplotMode && groups.length > 1;
                     if (useSubplot) {
                         const plotWidth = document.getElementById("plot").clientWidth;
@@ -349,10 +342,7 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                                 const tileW = plotWidth / cols;
                                 const tileH = plotHeight / rows;
                                 const score = Math.abs((tileW / tileH) - targetAspect);
-                                if (score < bestScore) {
-                                    bestScore = score;
-                                    bestCols = cols;
-                                }
+                                if (score < bestScore) { bestScore = score; bestCols = cols; }
                             }
                             numCols = bestCols;
                         } else {
@@ -370,54 +360,36 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                             const subgroupEntries = Array.from(subgroupGroups.entries());
                             yOptions.forEach((yAxis, yIndex) => {
                                 subgroupEntries.forEach(([subgroupVal, rows], subgroupIndex) => {
-                                    if (!rows.length) {
-                                        return;
-                                    }
-                                    const subgroupColorIndex = colorIndexBySubgroup.has(subgroupVal)
-                                        ? colorIndexBySubgroup.get(subgroupVal)
-                                        : subgroupIndex;
+                                    if (!rows.length) { return; }
+                                    const subgroupColorIndex = colorIndexBySubgroup.has(subgroupVal) ? colorIndexBySubgroup.get(subgroupVal) : subgroupIndex;
                                     const traceNameParts = [yAxis];
-                                    if (subgroupKey) {
-                                        traceNameParts.push(subgroupKey + "=" + subgroupVal);
-                                    }
+                                    if (subgroupKey) { traceNameParts.push(subgroupKey + "=" + subgroupVal); }
                                     const legendKey = traceNameParts.join("|");
                                     const showLegend = !legendSeen.has(legendKey);
-                                    if (showLegend) {
-                                        legendSeen.add(legendKey);
-                                    }
+                                    if (showLegend) { legendSeen.add(legendKey); }
                                     const cache = seriesCache.get(group).get(subgroupVal);
                                     const xVals = cache.xVals;
                                     const yVals = cache.yValsByKey.get(yAxis);
                                     const trace = {
-                                        x: xVals,
-                                        y: yVals,
-                                        type: "scattergl",
-                                        mode: "lines+markers",
+                                        x: xVals, y: yVals,
+                                        type: "scattergl", mode,
                                         name: traceNameParts.join(" | "),
                                         hovertemplate: subgroupKey
                                             ? (subgroupKey + ": " + subgroupVal + "<br>" + x + ": %{x}<br>" + yAxis + ": %{y}<extra></extra>")
                                             : (x + ": %{x}<br>" + yAxis + ": %{y}<extra></extra>"),
-                                        xaxis: "x" + (i + 1),
-                                        yaxis: "y" + (i + 1),
+                                        xaxis: "x" + (i + 1), yaxis: "y" + (i + 1),
                                         marker: { color: colors[subgroupColorIndex % colors.length] },
                                         line: { dash: dashPatterns[yIndex % dashPatterns.length] },
                                         showlegend: showLegend
                                     };
                                     figData.push(trace);
                                     if (yxLineAdded) {
-                                        const minVal = Math.min(...xVals.map((val, idx) => Math.min(val, yVals[idx])));
-                                        const maxVal = Math.max(...xVals.map((val, idx) => Math.max(val, yVals[idx])));
-                                        const lineTrace = {
-                                            x: [minVal, maxVal],
-                                            y: [minVal, maxVal],
-                                            type: "scatter",
-                                            mode: "lines",
-                                            line: { dash: "solid", color: "grey" },
-                                            showlegend: false,
-                                            xaxis: "x" + (i + 1),
-                                            yaxis: "y" + (i + 1)
-                                        };
-                                        figData.push(lineTrace);
+                                        let mn = Infinity, mx = -Infinity;
+                                        for (let k = 0; k < xVals.length; k++) {
+                                            if (xVals[k] < mn) { mn = xVals[k]; } if (xVals[k] > mx) { mx = xVals[k]; }
+                                            if (yVals[k] < mn) { mn = yVals[k]; } if (yVals[k] > mx) { mx = yVals[k]; }
+                                        }
+                                        figData.push({ x: [mn, mx], y: [mn, mx], type: "scatter", mode: "lines", line: { dash: "solid", color: "grey" }, showlegend: false, xaxis: "x" + (i + 1), yaxis: "y" + (i + 1) });
                                     }
                                 });
                             });
@@ -431,57 +403,30 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                             const yAxisKey = "yaxis" + (i + 1);
                             layout[xAxisKey] = {
                                 domain: [xDomainStart, xDomainEnd],
-                                showticklabels: xTicksVisible,
+                                showticklabels: true,
                                 tickfont: { size: tickFontSize, color: tickColor },
-                                gridcolor: gridColor
+                                gridcolor: gridColor,
+                                type: logX ? "log" : "linear"
                             };
                             layout[yAxisKey] = {
                                 domain: [yDomainStart, yDomainEnd],
-                                showticklabels: yTicksVisible,
+                                showticklabels: true,
                                 tickfont: { size: tickFontSize, color: tickColor },
-                                gridcolor: gridColor
+                                gridcolor: gridColor,
+                                type: logY ? "log" : "linear"
                             };
-                            if (i > 0 && syncX) {
-                                layout[xAxisKey].matches = "x";
-                            }
-                            if (i > 0 && syncY) {
-                                layout[yAxisKey].matches = "y";
-                            }
-
+                            if (i > 0 && syncX) { layout[xAxisKey].matches = "x"; }
+                            if (i > 0 && syncY) { layout[yAxisKey].matches = "y"; }
                             annotations.push({
                                 x: xDomainStart + (xDomainEnd - xDomainStart) / 2,
-                                y: yDomainEnd,
-                                xref: "paper",
-                                yref: "paper",
-                                text: group,
-                                showarrow: false,
-                                xanchor: "center",
-                                yanchor: "bottom"
+                                y: yDomainEnd, xref: "paper", yref: "paper",
+                                text: group, showarrow: false, xanchor: "center", yanchor: "bottom"
                             });
                         });
 
                         layout.annotations = annotations.concat([
-                            {
-                                text: x,
-                                x: 0.5,
-                                xref: "paper",
-                                y: 0,
-                                yref: "paper",
-                                showarrow: false,
-                                xanchor: "center",
-                                yanchor: "top"
-                            },
-                            {
-                                text: yOptions.join(", "),
-                                x: 0,
-                                xref: "paper",
-                                y: 0.5,
-                                yref: "paper",
-                                showarrow: false,
-                                xanchor: "right",
-                                yanchor: "middle",
-                                textangle: -90
-                            }
+                            { text: x, x: 0.5, xref: "paper", y: 0, yref: "paper", showarrow: false, xanchor: "center", yanchor: "top" },
+                            { text: yOptions.join(", "), x: 0, xref: "paper", y: 0.5, yref: "paper", showarrow: false, xanchor: "right", yanchor: "middle", textangle: -90 }
                         ]);
                     } else {
                         groups.forEach((group) => {
@@ -489,29 +434,19 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                             const subgroupEntries = Array.from(subgroupGroups.entries());
                             yOptions.forEach((yAxis, yIndex) => {
                                 subgroupEntries.forEach(([subgroupVal, rows], subgroupIndex) => {
-                                    if (!rows.length) {
-                                        return;
-                                    }
-                                    const subgroupColorIndex = colorIndexBySubgroup.has(subgroupVal)
-                                        ? colorIndexBySubgroup.get(subgroupVal)
-                                        : subgroupIndex;
+                                    if (!rows.length) { return; }
+                                    const subgroupColorIndex = colorIndexBySubgroup.has(subgroupVal) ? colorIndexBySubgroup.get(subgroupVal) : subgroupIndex;
                                     const traceNameParts = [yAxis];
-                                    if (subgroupKey) {
-                                        traceNameParts.push(subgroupKey + "=" + subgroupVal);
-                                    }
+                                    if (subgroupKey) { traceNameParts.push(subgroupKey + "=" + subgroupVal); }
                                     const legendKey = traceNameParts.join("|");
                                     const showLegend = !legendSeen.has(legendKey);
-                                    if (showLegend) {
-                                        legendSeen.add(legendKey);
-                                    }
+                                    if (showLegend) { legendSeen.add(legendKey); }
                                     const cache = seriesCache.get(group).get(subgroupVal);
                                     const xVals = cache.xVals;
                                     const yVals = cache.yValsByKey.get(yAxis);
-                                    const trace = {
-                                        x: xVals,
-                                        y: yVals,
-                                        type: "scattergl",
-                                        mode: "lines+markers",
+                                    figData.push({
+                                        x: xVals, y: yVals,
+                                        type: "scattergl", mode,
                                         name: traceNameParts.join(" | "),
                                         hovertemplate: subgroupKey
                                             ? (subgroupKey + ": " + subgroupVal + "<br>" + x + ": %{x}<br>" + yAxis + ": %{y}<extra></extra>")
@@ -519,37 +454,28 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                                         marker: { color: colors[subgroupColorIndex % colors.length] },
                                         line: { dash: dashPatterns[yIndex % dashPatterns.length] },
                                         showlegend: showLegend
-                                    };
-                                    figData.push(trace);
+                                    });
                                     if (yxLineAdded) {
-                                        const minVal = Math.min(...xVals.map((val, idx) => Math.min(val, yVals[idx])));
-                                        const maxVal = Math.max(...xVals.map((val, idx) => Math.max(val, yVals[idx])));
-                                        const lineTrace = {
-                                            x: [minVal, maxVal],
-                                            y: [minVal, maxVal],
-                                            type: "scatter",
-                                            mode: "lines",
-                                        line: { dash: "solid", color: "grey" },
-                                            showlegend: false
-                                        };
-                                        figData.push(lineTrace);
+                                        let mn = Infinity, mx = -Infinity;
+                                        for (let k = 0; k < xVals.length; k++) {
+                                            if (xVals[k] < mn) { mn = xVals[k]; } if (xVals[k] > mx) { mx = xVals[k]; }
+                                            if (yVals[k] < mn) { mn = yVals[k]; } if (yVals[k] > mx) { mx = yVals[k]; }
+                                        }
+                                        figData.push({ x: [mn, mx], y: [mn, mx], type: "scatter", mode: "lines", line: { dash: "solid", color: "grey" }, showlegend: false });
                                     }
                                 });
                             });
                         });
                         layout.xaxis = {
-                            title: x,
-                            showticklabels: xTicksVisible,
+                            title: x, showticklabels: true,
                             tickfont: { size: tickFontSize, color: tickColor },
-                            gridcolor: gridColor
+                            gridcolor: gridColor, type: logX ? "log" : "linear"
                         };
                         layout.yaxis = {
-                            title: yOptions.join(", "),
-                            showticklabels: yTicksVisible,
+                            title: yOptions.join(", "), showticklabels: true,
                             tickfont: { size: tickFontSize, color: tickColor },
-                            gridcolor: gridColor
+                            gridcolor: gridColor, type: logY ? "log" : "linear"
                         };
-
                     }
                     if (hasPlot) {
                         Plotly.react("plot", figData, layout, { responsive: true });
@@ -559,12 +485,86 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
                     }
                 }
 
+                function applyPreset(xCol, yCol, addYX, filterEVID) {
+                    const allCols = Array.from(document.getElementById("xSelect").options).map(o => o.value);
+                    if (!allCols.includes(xCol) || !allCols.includes(yCol)) { return; }
+                    document.getElementById("xSelect").value = xCol;
+                    Array.from(document.getElementById("ySelect").options).forEach(o => { o.selected = o.value === yCol; });
+                    yxLineAdded = addYX;
+                    document.getElementById("addYXLine").textContent = addYX ? "Remove y=x Line" : "Add y=x Line";
+                    if (filterEVID && allCols.includes("EVID")) {
+                        document.getElementById("filterCol").value = "EVID";
+                        updateFilterValues();
+                        Array.from(document.getElementById("filterValues").options).forEach(o => { o.selected = o.value === "0"; });
+                    }
+                    updatePlot();
+                }
+
+                // Event listeners
+                document.getElementById("groupSelect").addEventListener("change", function () {
+                    updateSelectValues("group");
+                    updatePlot();
+                });
+                document.getElementById("subgroupSelect").addEventListener("change", updatePlot);
+                document.getElementById("xSelect").addEventListener("change", updatePlot);
+                document.getElementById("ySelect").addEventListener("change", updatePlot);
+                document.getElementById("modeSelect").addEventListener("change", updatePlot);
+                document.getElementById("logXToggle").addEventListener("change", updatePlot);
+                document.getElementById("logYToggle").addEventListener("change", updatePlot);
+                document.getElementById("groupValues").addEventListener("change", updatePlot);
+                document.getElementById("minTileWidth").addEventListener("input", updatePlot);
+                document.getElementById("autoTileWidth").addEventListener("change", function (event) {
+                    document.getElementById("minTileWidth").disabled = event.target.checked;
+                    updatePlot();
+                });
+                document.getElementById("subplotToggle").addEventListener("change", function (event) {
+                    subplotMode = event.target.checked;
+                    updatePlot();
+                });
+                document.getElementById("syncXToggle").addEventListener("change", function (event) { syncX = event.target.checked; updatePlot(); });
+                document.getElementById("syncYToggle").addEventListener("change", function (event) { syncY = event.target.checked; updatePlot(); });
+
+                document.getElementById("filterCol").addEventListener("change", function() {
+                    updateFilterValues();
+                    updatePlot();
+                });
+                document.getElementById("filterValues").addEventListener("change", updatePlot);
+                document.getElementById("btnEvid0").addEventListener("click", function() {
+                    const cols = Array.from(document.getElementById("xSelect").options).map(o => o.value);
+                    if (!cols.includes("EVID")) { return; }
+                    document.getElementById("filterCol").value = "EVID";
+                    updateFilterValues();
+                    Array.from(document.getElementById("filterValues").options).forEach(o => { o.selected = o.value === "0"; });
+                    updatePlot();
+                });
+                document.getElementById("btnMdv0").addEventListener("click", function() {
+                    const cols = Array.from(document.getElementById("xSelect").options).map(o => o.value);
+                    if (!cols.includes("MDV")) { return; }
+                    document.getElementById("filterCol").value = "MDV";
+                    updateFilterValues();
+                    Array.from(document.getElementById("filterValues").options).forEach(o => { o.selected = o.value === "0"; });
+                    updatePlot();
+                });
+                document.getElementById("addYXLine").addEventListener("click", function () {
+                    yxLineAdded = !yxLineAdded;
+                    this.textContent = yxLineAdded ? "Remove y=x Line" : "Add y=x Line";
+                    updatePlot();
+                });
+                document.getElementById("presetDvPred").addEventListener("click",    () => applyPreset("PRED",  "DV",    true,  true));
+                document.getElementById("presetDvIpred").addEventListener("click",   () => applyPreset("IPRED", "DV",    true,  true));
+                document.getElementById("presetCwresTime").addEventListener("click", () => applyPreset("TIME",  "CWRES", false, true));
+                document.getElementById("presetCwresPred").addEventListener("click", () => applyPreset("PRED",  "CWRES", false, true));
+
+                const resizePlot = debounce(() => { updatePlot(); }, 150);
+                window.addEventListener("resize", resizePlot);
+
                 window.addEventListener("message", function (event) {
                     const message = event.data;
                     if (message.command === "plotData") {
                         currentData = message.data;
                         buildUniqueValues();
                         updateSelectValues("group");
+                        updateFilterValues();
                         updatePlot();
                     }
                 });
@@ -575,6 +575,7 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
         </html>
     `;
 }
+
 
 export function getWebviewContent_echarts(data: any[], theme: string): string {
     const columns = Object.keys(data[0]);
@@ -662,7 +663,13 @@ export function getWebviewContent_echarts(data: any[], theme: string): string {
                     const group = document.getElementById("groupSelect").value;
                     const uniqueValues = Array.from(new Set(currentData.map(row => row[group])));
                     const groupValuesSelect = document.getElementById("groupValues");
-                    groupValuesSelect.innerHTML = uniqueValues.map(val => \`<option value="\${val}">\${val}</option>\`).join('');
+                    groupValuesSelect.replaceChildren();
+                    uniqueValues.forEach(val => {
+                        const opt = document.createElement('option');
+                        opt.value = String(val);
+                        opt.textContent = String(val);
+                        groupValuesSelect.appendChild(opt);
+                    });
                 }
 
                 function updatePlot() {
@@ -790,24 +797,14 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
     const rowLabelKey = headerKeys[0];
     const xLabels = headerKeys.slice(1).map(String);
     const yLabels = data.slice(1).map(row => String(row[rowLabelKey]));
-    const originalZValues = yLabels.map(label => {
-        const row = data.slice(1).find(r => String(r[rowLabelKey]) === label);
-        if (!row) {
-            return new Array(xLabels.length).fill(NaN);
-        }
-        return xLabels.map((_, idx) => {
-            const key = headerKeys[idx + 1];
-            const value = Number(row[key]);
+    const dataRows = data.slice(1);
+    const originalZValues = dataRows.map(row =>
+        xLabels.map((_, idx) => {
+            const value = Number(row[headerKeys[idx + 1]]);
             return Number.isFinite(value) ? value : NaN;
-        });
-    });
-    const ignoreDiagonals = !fileName.endsWith('.phi');
-    const zValues = originalZValues.map((row, rowIndex) =>
-        row.map((value, colIndex) => {
-            if (ignoreDiagonals && rowIndex === colIndex) { return NaN; }
-            return value === 0 ? 0 : Math.tanh(Math.abs(value)) * Math.sign(value);
         })
     );
+    const ignoreDiagonals = !fileName.endsWith('.phi');
     const textValues = originalZValues.map(row => row.map(value => value.toFixed(2)));
 
     const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
@@ -882,6 +879,9 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
                 const labelSelect = document.getElementById("labelSelect");
                 const offDiagToggle = document.getElementById("offDiagToggle");
                 const baseLabels = [...xLabels];
+                const labelIndex = new Map(xLabels.map((label, i) => [label, i]));
+                const zWithDiag  = originalZValues.map((row, ri) => row.map((v, ci) => v === 0 ? 0 : Math.tanh(Math.abs(v)) * Math.sign(v)));
+                const zNoDiag    = originalZValues.map((row, ri) => row.map((v, ci) => ri === ci ? NaN : (v === 0 ? 0 : Math.tanh(Math.abs(v)) * Math.sign(v))));
 
                 function parseMatrixLabel(label) {
                     const match = label.match(/(OMEGA|SIGMA)\\s*\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)/i);
@@ -910,7 +910,7 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
 
                 function rebuildLabelOptions() {
                     const selected = new Set(Array.from(labelSelect.selectedOptions).map(option => option.value));
-                    labelSelect.innerHTML = "";
+                    labelSelect.replaceChildren();
                     const visibleLabels = getVisibleLabels();
                     const hasVisibleSelection = visibleLabels.some(label => selected.has(label));
                     visibleLabels.forEach(label => {
@@ -951,15 +951,6 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
                     updatePlot(ignoreDiagonals);
                 }
 
-                function getZValues(ignoreDiagonals) {
-                    return originalZValues.map((row, rowIndex) =>
-                        row.map((value, colIndex) => {
-                            if (ignoreDiagonals && rowIndex === colIndex) return NaN;
-                            return value === 0 ? 0 : Math.tanh(Math.abs(value)) * Math.sign(value);
-                        })
-                    );
-                }
-
                 function updatePlot(ignoreDiagonals) {
                     const selectedLabels = Array.from(labelSelect.selectedOptions)
                         .map(option => option.value)
@@ -973,12 +964,11 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
                         }, { responsive: true });
                         return;
                     }
-                    const labelIndex = new Map(xLabels.map((label, index) => [label, index]));
+                    const rawZ = ignoreDiagonals ? zNoDiag : zWithDiag;
                     const indices = selectedLabels.map(label => labelIndex.get(label)).filter(index => index !== undefined);
                     const filteredLabels = indices.map(index => xLabels[index]);
-                    const rawZ = getZValues(ignoreDiagonals);
-                    const filteredZ = indices.map(rowIndex => indices.map(colIndex => rawZ[rowIndex][colIndex]));
-                    const filteredText = indices.map(rowIndex => indices.map(colIndex => textValues[rowIndex][colIndex]));
+                    const filteredZ = indices.map(ri => indices.map(ci => rawZ[ri][ci]));
+                    const filteredText = indices.map(ri => indices.map(ci => textValues[ri][ci]));
                     Plotly.react('plot', [{
                         z: filteredZ,
                         x: filteredLabels,
@@ -996,8 +986,8 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
                         plot_bgcolor: backgroundColor,
                         font: { color: axisColor },
                         margin: { t: 20, b: 70, l: 70, r: 50 },
-                        xaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor, tickmode: 'array', tickvals: filteredLabels, ticktext: filteredLabels, tickfont: { size: 10, color: '#cccccc' } },
-                        yaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor, tickmode: 'array', tickvals: filteredLabels, ticktext: filteredLabels, tickfont: { size: 10, color: '#cccccc' } }
+                        xaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor, tickmode: 'array', tickvals: filteredLabels, ticktext: filteredLabels, tickfont: { size: 10, color: axisColor } },
+                        yaxis: { showticklabels: true, tickangle: -45, gridcolor: gridColor, tickmode: 'array', tickvals: filteredLabels, ticktext: filteredLabels, tickfont: { size: 10, color: axisColor } }
                     }, { responsive: true });
                 }
 
@@ -1800,4 +1790,225 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
         </body>
         </html>
     `;
+}
+
+
+
+export function getWebviewContent_liveExt(
+    _runs: { runName: string; data: any[] }[],
+    theme: string
+): string {
+    const isDark = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
+    const axisColor = isDark ? '#cccccc' : '#333333';
+    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 4px 4px; font-family: var(--vscode-font-family); font-size: 12px; color: var(--vscode-foreground); background: transparent; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; flex-shrink: 0; }
+        select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); padding: 3px 6px; font-size: 12px; flex: 1; min-width: 0; max-width: 420px; }
+        button.icon-btn { padding: 3px 8px; cursor: pointer; border: 1px solid var(--vscode-panel-border); border-radius: 3px; background: transparent; color: var(--vscode-foreground); font-size: 12px; }
+        .sep { width: 1px; height: 20px; background: var(--vscode-panel-border); flex-shrink: 0; }
+        .toggle { padding: 3px 10px; cursor: pointer; border: 1px solid var(--vscode-panel-border); border-radius: 3px; background: transparent; color: var(--vscode-foreground); font-size: 12px; }
+        .toggle.active { background: var(--vscode-button-secondaryBackground, #555); color: var(--vscode-button-secondaryForeground, #fff); }
+        #chart-wrapper { flex: 1; overflow-y: auto; min-height: 0; }
+        #chart { width: 100%; }
+        #msg { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--vscode-descriptionForeground); }
+        #status { font-size: 11px; color: var(--vscode-descriptionForeground); flex-shrink: 0; height: 16px; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <select id="run-select" onchange="onSelectChange()">
+            <option value="">— Scanning for modelfit_dir*/NM_run*/psn.ext —</option>
+        </select>
+        <button class="icon-btn" onclick="refresh()" title="Refresh list">↺</button>
+        <div class="sep"></div>
+        <button class="toggle active" id="btn-theta" onclick="toggleParam('theta')">THETA</button>
+        <button class="toggle" id="btn-omega" onclick="toggleParam('omega')">OMEGA</button>
+        <button class="toggle" id="btn-sigma" onclick="toggleParam('sigma')">SIGMA</button>
+        <button class="toggle" id="btn-obj"   onclick="toggleParam('obj')">OBJ</button>
+    </div>
+    <div id="chart-wrapper">
+        <div id="chart"></div>
+        <div id="msg">Select a run from the dropdown above</div>
+    </div>
+    <div id="status"></div>
+<script>
+    const vscode = acquireVsCodeApi();
+    const COLORS = ['#4c8cbf','#e07b3a','#57a45d','#c94f4f','#9370db','#c7883b','#e47fbf','#7f7f7f','#b5b520','#23b5c5'];
+    const shown  = { theta: true, omega: false, sigma: false, obj: false };
+    let currentData = null;
+    let currentRun  = null;
+
+    const sel      = document.getElementById('run-select');
+    const chartEl  = document.getElementById('chart');
+    const msgEl    = document.getElementById('msg');
+
+    function showMsg(text) { chartEl.style.display = 'none'; msgEl.style.display = 'flex'; msgEl.textContent = text; }
+    function showChart()   { chartEl.style.display = '';      msgEl.style.display = 'none'; }
+
+    function toggleParam(type) {
+        shown[type] = !shown[type];
+        document.getElementById('btn-' + type).classList.toggle('active', shown[type]);
+        if (currentData) { render(); }
+    }
+
+    function refresh() { vscode.postMessage({ command: 'refresh' }); }
+
+    function onSelectChange() {
+        const runName = sel.value;
+        if (!runName) { return; }
+        currentRun  = runName;
+        currentData = null;
+        showMsg('Loading...');
+        vscode.postMessage({ command: 'select', runName });
+    }
+
+    function getVisibleCols(tables) {
+        const seen = new Set();
+        const cols = [];
+        tables.forEach(table => {
+            (table.header || []).forEach(col => {
+                if (col === 'ITERATION' || seen.has(col)) { return; }
+                const isTheta = /^THETA/.test(col);
+                const isOmega = /^OMEGA/.test(col);
+                const isSigma = /^SIGMA/.test(col);
+                const isObj   = col.includes('OBJ');
+                if (isOmega || isSigma) {
+                    const m = col.match(/\\((\\d+),(\\d+)\\)/);
+                    if (m && m[1] !== m[2]) { return; }
+                }
+                if ((isTheta && shown.theta) || (isOmega && shown.omega) ||
+                    (isSigma && shown.sigma)  || (isObj   && shown.obj)) {
+                    seen.add(col); cols.push(col);
+                }
+            });
+        });
+        return cols;
+    }
+
+    function buildSubplots(tables) {
+        const cols = getVisibleCols(tables);
+        if (cols.length === 0) { return null; }
+        const n = cols.length;
+        const dashes = ['solid','dot','dash','longdash'];
+
+        const containerW = chartEl.parentElement.clientWidth || 400;
+        const numCols = Math.min(n, Math.max(1, Math.floor(containerW / 160)));
+        const numRows = Math.ceil(n / numCols);
+        const H_PER = 150;
+
+        const traces = [];
+        const layout = {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor:  'rgba(0,0,0,0)',
+            font:     { color: '${axisColor}', size: 10 },
+            margin:   { t: 6, b: 38, l: 52, r: 6 },
+            height:   numRows * H_PER + 48,
+            showlegend: tables.length > 1,
+            legend:   { bgcolor: 'rgba(0,0,0,0)', font: { color: '${axisColor}', size: 10 } },
+            grid:     { rows: numRows, columns: numCols, pattern: 'independent', ygap: 0.18, xgap: 0.15 }
+        };
+
+        cols.forEach((col, i) => {
+            const xKey = i === 0 ? 'xaxis'  : ('xaxis'  + (i + 1));
+            const yKey = i === 0 ? 'yaxis'  : ('yaxis'  + (i + 1));
+            const xRef = i === 0 ? 'x'      : ('x'      + (i + 1));
+            const yRef = i === 0 ? 'y'      : ('y'      + (i + 1));
+            const isBottomRow = Math.floor(i / numCols) === numRows - 1;
+
+            layout[xKey] = {
+                color: '${axisColor}', gridcolor: '${gridColor}', zeroline: false,
+                showticklabels: isBottomRow,
+                ...(i > 0 ? { matches: 'x' } : {}),
+                ...(isBottomRow ? { title: { text: 'Iteration', font: { size: 10 } } } : {})
+            };
+            layout[yKey] = {
+                title: { text: col, font: { size: 9 }, standoff: 2 },
+                color: '${axisColor}', gridcolor: '${gridColor}',
+                zeroline: false, tickfont: { size: 8 }
+            };
+
+            tables.forEach((table, tIdx) => {
+                const { sparklineData, tableNoLine } = table;
+                if (!sparklineData || !sparklineData['ITERATION'] || !sparklineData[col]) { return; }
+                const suffix = tables.length > 1
+                    ? ' [' + (tableNoLine || ('M' + (tIdx + 1))).trim().replace(/^TABLE NO\\.\\s*/i, '') + ']'
+                    : '';
+                traces.push({
+                    x: sparklineData['ITERATION'], y: sparklineData[col],
+                    name: col + suffix,
+                    type: 'scatter', mode: 'lines',
+                    xaxis: xRef, yaxis: yRef,
+                    line: { color: COLORS[i % COLORS.length], dash: dashes[tIdx % dashes.length] },
+                    showlegend: tables.length > 1 && i === 0
+                });
+            });
+        });
+
+        return { traces, layout };
+    }
+
+    function updateStatus(tables) {
+        if (!tables || tables.length === 0) { return; }
+        const last = tables[tables.length - 1];
+        if (!last || !last.lastRow) { return; }
+        const iter   = last.lastRow['ITERATION'];
+        const objKey = (last.header || []).find(h => h.includes('OBJ'));
+        const obj    = objKey ? last.lastRow[objKey] : undefined;
+        const parts  = [];
+        if (iter !== undefined) { parts.push('Iteration: ' + iter); }
+        if (obj  !== undefined) { parts.push('OBJ: ' + (typeof obj === 'number' ? obj.toFixed(3) : obj)); }
+        parts.push('Updated: ' + new Date().toLocaleTimeString());
+        document.getElementById('status').textContent = parts.join('  |  ');
+    }
+
+    function render() {
+        const result = buildSubplots(currentData);
+        if (!result || result.traces.length === 0) { showMsg('No parameters selected'); return; }
+        showChart();
+        Plotly.react('chart', result.traces, result.layout, { responsive: true });
+        updateStatus(currentData);
+    }
+
+    window.addEventListener('message', event => {
+        const msg = event.data;
+        if (msg.command === 'populate') {
+            sel.innerHTML = '<option value="">— Select a run —</option>';
+            msg.runs.forEach(r => {
+                const opt = document.createElement('option');
+                opt.value = r; opt.textContent = r;
+                sel.appendChild(opt);
+            });
+        } else if (msg.command === 'addRun') {
+            const exists = [...sel.options].some(o => o.value === msg.runName);
+            if (!exists) {
+                const opt = document.createElement('option');
+                opt.value = msg.runName; opt.textContent = msg.runName;
+                sel.appendChild(opt);
+            }
+        } else if (msg.command === 'data') {
+            if (msg.runName !== currentRun) { return; }
+            currentData = msg.data;
+            render();
+        }
+    });
+
+    showMsg('Select a run from the dropdown above');
+
+    let resizeTimer;
+    new ResizeObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => { if (currentData) render(); }, 150);
+    }).observe(chartEl.parentElement);
+</script>
+</body>
+</html>`;
 }

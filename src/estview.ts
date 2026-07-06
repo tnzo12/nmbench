@@ -43,6 +43,8 @@ export interface ParseResult {
     sim_info: string;
     gradients: number[];
     initEstimates: Record<string, EstimatesResult>; // ✅ 초기 추정치 + 라벨 포함
+    obs_recs: number | null;
+    num_individuals: number | null;
 }
 
 export interface SumoSummary {
@@ -103,6 +105,8 @@ export class LstParser {
         let initialOmega: number[][] = [];
         let initialSigma: number[][] = [];
         let omegaRowIndex = 0;
+        let omegaPadded = false;
+        let sigmaPadded = false;
         let sigmaRowIndex = 0;
     
         // 블록 모드 상태 변수 (OMEGA 관련)
@@ -124,6 +128,8 @@ export class LstParser {
         const grad_zero: Record<string, boolean> = {};
         const cond_nr: Record<string, number> = {};
         const initEstimates: Record<string, EstimatesResult> = {};
+        let obs_recs: number | null = null;
+        let num_individuals: number | null = null;
     
         // 임시 저장용 배열
         let est_text: string[] = [];
@@ -349,6 +355,8 @@ export class LstParser {
 
         // parseAll() 함수 시작 부분에 정규표현식을 미리 정의
         const reNonmemVersion = /NONLINEAR MIXED EFFECTS MODEL PROGRAM \(NONMEM\) VERSION 7/;
+        const reObsRecs = /TOT\.\s*NO\.\s*OF\s*OBS\s*RECS\s*:\s*(\d+)/i;
+        const reNumInd  = /TOT\.\s*NO\.\s*OF\s*INDIVIDUALS\s*:\s*(\d+)/i;
         // Strict section entry matchers: match $THETA / $OMEGA / $SIGMA only when not followed by letters/underscores/digits
         const reTheta = /^\$THETA(?![A-Z0-9_])/i;
         const reOmega = /^\$OMEGA(?![A-Z0-9_])/i;
@@ -501,13 +509,14 @@ export class LstParser {
                     omegaRowIndex++;
                 }
             }
-            if (!initOmegaArea && initialOmega.length > 0) {
-                let lastRow = initialOmega.length;
+            if (!initOmegaArea && !omegaPadded && initialOmega.length > 0) {
+                const lastRow = initialOmega.length;
                 for (let row of initialOmega) {
                     while (row.length < lastRow) {
                         row.push(0);
                     }
                 }
+                omegaPadded = true;
             }
     
             // SIGMA 초기값 추출
@@ -521,13 +530,14 @@ export class LstParser {
                     sigmaRowIndex++;
                 }
             }
-            if (!initSigmaArea && initialSigma.length > 0) {
-                let lastRow = initialSigma.length;
+            if (!initSigmaArea && !sigmaPadded && initialSigma.length > 0) {
+                const lastRow = initialSigma.length;
                 for (let row of initialSigma) {
                     while (row.length < lastRow) {
                         row.push(0);
                     }
                 }
+                sigmaPadded = true;
             }
     
             // 메소드 블록 종료 조건: 다음 줄의 특정 조건 또는 파일 끝에서 현재 메소드 블록을 저장
@@ -862,6 +872,11 @@ export class LstParser {
                 }
             }
         
+            const obsMatch = line.match(reObsRecs);
+            if (obsMatch) { obs_recs = parseInt(obsMatch[1], 10); }
+            const indMatch = line.match(reNumInd);
+            if (indMatch) { num_individuals = parseInt(indMatch[1], 10); }
+
             if (line.match(/NEAR ITS BOUNDARY/)) {
                 bnd[est_method] = "Y";
                 sumoState.nearBoundaryInfo = true;
@@ -930,7 +945,9 @@ export class LstParser {
             cond_nr,
             sim_info,
             gradients,
-            initEstimates
+            initEstimates,
+            obs_recs,
+            num_individuals
         };
     }
 
@@ -1324,7 +1341,8 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
             const nearBoundary = parseResults.bnd[method] || 'N/A';
             const covStep = parseResults.cov_mat[method] || 'N/A';
             const estTime = parseResults.est_times[method] || 'N/A';
-    
+            const condNr = parseResults.cond_nr[method];
+
             // 값에 따라 스타일 적용 (예: 'Y'이면 지정된 색상)
             const nearBoundaryStyled = nearBoundary === 'Y'
               ? `<span style="color: #6699cc;">${nearBoundary}</span>`
@@ -1335,6 +1353,13 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
             const estTimeStyled = estTime
               ? `<span style="color: #66cc99;">${estTime}</span>`
               : estTime;
+            const condNrStyled = condNr !== undefined
+              ? condNr > 10000
+                ? `<span style="color: #e24c4b;">${condNr.toFixed(0)}</span>`
+                : condNr > 1000
+                  ? `<span style="color: #f2c94c;">${condNr.toFixed(0)}</span>`
+                  : `<span style="color: #3bb273;">${condNr.toFixed(0)}</span>`
+              : null;
         
             // [추가] label들
             const initE = initEstimates[method] || {};
@@ -1385,6 +1410,7 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                                 Bound: ${nearBoundaryStyled} |
                                 Cov: ${covStepStyled} |
                                 Elapsed: ${estTimeStyled}
+                                ${condNrStyled ? `| CondNr: ${condNrStyled}` : ''}
                             </td>
                         </tr>
                     </tbody>
@@ -1409,7 +1435,7 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
                                 row.style.display = "none";
                             } else {
                                 const estVal = parseFloat(data);
-                                if (!isNaN(estVal) && Math.abs(estVal) === 0) {
+                                if (!isNaN(estVal) && Math.abs(estVal) < 1e-10) {
                                     row.style.display = "none";
                                 }
                             }
@@ -1419,7 +1445,16 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
             `;
             htmlSections.push(methodHtml);
         }
-        
+
+        const condNrEntries = parseResults.methods
+            .filter(m => parseResults.cond_nr[m] !== undefined)
+            .map(m => {
+                const nr = parseResults.cond_nr[m];
+                const color = nr > 10000 ? '#e24c4b' : nr > 1000 ? '#f2c94c' : '#3bb273';
+                const label = parseResults.methods.length > 1 ? `${m}: ` : '';
+                return `${label}<span style="color:${color};">${nr.toFixed(0)}</span>`;
+            });
+
         return `
             <!DOCTYPE html>
             <html lang="en">
@@ -1492,6 +1527,13 @@ export class EstimatesWebViewProvider implements vscode.WebviewViewProvider {
             <body>
                 <div id="estimates-content">
                     ${htmlSections.join('\n')}
+                    ${(parseResults.num_individuals !== null || parseResults.obs_recs !== null || condNrEntries.length > 0) ? `
+                    <div style="font-size: 10.5px; color: #888; margin: 4px 0 6px 0; padding: 4px 2px; border-top: 1px solid rgba(0,0,0,0.08);">
+                        ${parseResults.num_individuals !== null ? `Individuals: ${parseResults.num_individuals}` : ''}
+                        ${parseResults.num_individuals !== null && parseResults.obs_recs !== null ? ' &nbsp;|&nbsp; ' : ''}
+                        ${parseResults.obs_recs !== null ? `Observations: ${parseResults.obs_recs}` : ''}
+                        ${condNrEntries.length > 0 ? ` &nbsp;|&nbsp; CondNr: ${condNrEntries.join(' &nbsp;|&nbsp; ')}` : ''}
+                    </div>` : ''}
                     <div id="cv-controls" style="background: transparent; padding: 6px 8px; border-top: 1px solid rgba(0,0,0,0.08); margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px;">                  <strong>Ω CV mode:</strong>
                       <label><input type="radio" name="cvMode" value="off" checked> Off</label>
                       <label><input type="radio" name="cvMode" value="sqrt"> √w²</label>
