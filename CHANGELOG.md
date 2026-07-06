@@ -4,10 +4,10 @@ All notable changes to the "nmbench" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [0.3.4] - 2026-07-06
+## [0.3.5] - 2026-07-06
 
 ### Changed
-- **Plotly is now bundled locally** at `resources/lib/plotly-2.32.0.min.js` (~3.5 MB) and every webview (`getWebviewContent_plotly`, `getWebviewContent_heatmap_plotly`, `getWebviewContent_hist`, `getWebviewContent_liveExt`) resolves it via `panel.webview.asWebviewUri()`. Previously the script tag pointed at `https://cdn.plot.ly/plotly-2.32.0.min.js`, which is silently blocked by the stricter default Content Security Policy that web-based VS Code forks apply — code-server, Gitpod, GitHub Codespaces, `github.dev`, `vscode.dev`. Plots would render fine in VS Code Desktop but come up blank on those hosts. Bundling also removes the network dependency: plots work offline and are unaffected if the CDN URL ever changes.
+- **Plotly is now bundled locally** at `resources/lib/plotly-2.32.0.min.js` (~3.5 MB) and every webview (`getWebviewContent_plotly`, `getWebviewContent_heatmap_plotly`, `getWebviewContent_hist`, `getWebviewContent_liveExt`) resolves it via `panel.webview.asWebviewUri()`. Previously the script tag pointed at `https://cdn.plot.ly/plotly-2.32.0.min.js`; bundling removes the network dependency so plots work offline and are unaffected if the CDN URL ever changes.
 
 ## [0.3.3] - 2026-07-06
 

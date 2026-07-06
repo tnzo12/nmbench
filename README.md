@@ -86,8 +86,8 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.3.4
-* **Plotly bundled locally** — data inspector, heatmap, histogram, and live estimation monitor now render on browser-based VS Code forks (code-server, Gitpod, Codespaces, github.dev, vscode.dev) whose stricter CSP was silently blocking the previous CDN script. Also works offline.
+### 0.3.5
+* **Plotly bundled locally** — data inspector, heatmap, histogram, and live estimation monitor no longer depend on the Plotly CDN. Plots work offline and are unaffected if the upstream URL ever changes.
 
 ### 0.3.3
 * **Positron compatibility** — the extension now installs on Positron and other VS Code-based IDEs with an older bundled VS Code base
