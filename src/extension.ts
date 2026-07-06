@@ -33,6 +33,13 @@ async function seedDecorations(dirPath: string): Promise<void> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+    // Plotly is bundled locally (resources/lib/plotly-*.min.js) so web-based VS Code forks
+    // (code-server, Gitpod, github.dev) can render charts under their stricter webview CSP,
+    // which blocks external CDN scripts. Each webview panel resolves the bundled asset via
+    // asWebviewUri() to get a vscode-webview:// URL that's automatically allowlisted.
+    const plotlyResourceUri = vscode.Uri.joinPath(context.extensionUri, 'resources', 'lib', 'plotly-2.32.0.min.js');
+    const getPlotlyUri = (webview: vscode.Webview) => webview.asWebviewUri(plotlyResourceUri).toString();
+
     const activeRunningTerminals = new Set<vscode.Terminal>();
     const shellIntegrationSeenTerminals = new Set<vscode.Terminal>();
     const modFileViewerProvider = new ModFileViewerProvider(activeRunningTerminals, shellIntegrationSeenTerminals);
@@ -191,7 +198,7 @@ export function activate(context: vscode.ExtensionContext) {
             { enableScripts: true }
         );
         const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-        panel.webview.html = getWebviewContent_plotly(data, theme);
+        panel.webview.html = getWebviewContent_plotly(data, theme, getPlotlyUri(panel.webview));
         panel.webview.onDidReceiveMessage(message => {
             if (message.command === 'requestData') {
                 panel.webview.postMessage({ command: 'plotData', data: data });
@@ -211,7 +218,7 @@ export function activate(context: vscode.ExtensionContext) {
             { enableScripts: true }
         );
         const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-        panel.webview.html = getWebviewContent_hist(data, theme);
+        panel.webview.html = getWebviewContent_hist(data, theme, getPlotlyUri(panel.webview));
     };
 
     context.subscriptions.push(
@@ -463,7 +470,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             // Get the current theme
             const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-            panel.webview.html = getWebviewContent_heatmap_plotly(data, theme, baseFileName);
+            panel.webview.html = getWebviewContent_heatmap_plotly(data, theme, baseFileName, getPlotlyUri(panel.webview));
 
             // Handle messages from the webview
             panel.webview.onDidReceiveMessage(message => {
@@ -576,7 +583,7 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.ViewColumn.Two,
                 { enableScripts: true, retainContextWhenHidden: true }
             );
-            panel.webview.html = getWebviewContent_liveExt([], theme);
+            panel.webview.html = getWebviewContent_liveExt([], theme, getPlotlyUri(panel.webview));
 
             // runName → absolute filePath
             const runMap = new Map<string, string>();
@@ -715,7 +722,7 @@ export function activate(context: vscode.ExtensionContext) {
             );
             const runName = chosen.label;
             const data = await readNmTable_ext(chosen.psnExt).catch(() => []);
-            panel.webview.html = getWebviewContent_liveExt([{ runName, data }], theme);
+            panel.webview.html = getWebviewContent_liveExt([{ runName, data }], theme, getPlotlyUri(panel.webview));
             panel.webview.postMessage({ command: 'populate', runs: [runName] });
             panel.webview.postMessage({ command: 'data', runName, data });
 
@@ -826,7 +833,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 // Get the current theme
                 const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-                panel.webview.html = getWebviewContent_plotly(data, theme);
+                panel.webview.html = getWebviewContent_plotly(data, theme, getPlotlyUri(panel.webview));
 
                 // Handle messages from the webview
                 panel.webview.onDidReceiveMessage(message => {
@@ -858,7 +865,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             // Get the current theme
             const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-            panel.webview.html = getWebviewContent_hist(data, theme);
+            panel.webview.html = getWebviewContent_hist(data, theme, getPlotlyUri(panel.webview));
             // }
         }
     });

@@ -51,7 +51,7 @@ export function getWebviewContent(output: string): string {
         </html>
     `;
 }
-export function getWebviewContent_plotly(data: any[], theme: string): string {
+export function getWebviewContent_plotly(data: any[], theme: string, plotlyUri: string): string {
     const columns = data.length > 0 ? Object.keys(data[0]) : [];
     const isDarkTheme = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
     const axisColor = isDarkTheme ? 'white' : 'black';
@@ -66,7 +66,7 @@ export function getWebviewContent_plotly(data: any[], theme: string): string {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+            <script src="${plotlyUri}"></script>
             <style>
                 body { margin: 0; padding: 0; display: flex; height: 100vh; }
                 #plot { flex: 1; height: 100vh; background: transparent; }
@@ -792,7 +792,7 @@ export function getWebviewContent_echarts(data: any[], theme: string): string {
         </html>
     `;
 }
-export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: string): string {
+export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fileName: string, plotlyUri: string): string {
     const headerKeys = Object.keys(data[0]);
     const rowLabelKey = headerKeys[0];
     const xLabels = headerKeys.slice(1).map(String);
@@ -828,7 +828,7 @@ export function getWebviewContent_heatmap_plotly(data: any[], theme: string, fil
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+            <script src="${plotlyUri}"></script>
             <style>
                 body { margin: 0; padding: 0; display: flex; height: 100vh; }
                 #plot { flex: 1; height: 100vh; background: transparent; }
@@ -1284,7 +1284,7 @@ const tableRows = columns.map((col: string, index: number) => {
         </html>
     `;
 }
-export function getWebviewContent_hist(data: any[], theme: string): string {
+export function getWebviewContent_hist(data: any[], theme: string, plotlyUri: string): string {
     const columns = Object.keys(data[0]);
 
     // Determine colors based on the theme
@@ -1306,7 +1306,7 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+            <script src="${plotlyUri}"></script>
             <style>
                 body { margin: 0; padding: 0; display: flex; height: 100vh; }
                 #plot { flex: 1; height: 100vh; background: transparent; }
@@ -1796,7 +1796,8 @@ export function getWebviewContent_hist(data: any[], theme: string): string {
 
 export function getWebviewContent_liveExt(
     _runs: { runName: string; data: any[] }[],
-    theme: string
+    theme: string,
+    plotlyUri: string
 ): string {
     const isDark = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
     const axisColor = isDark ? '#cccccc' : '#333333';
@@ -1807,7 +1808,7 @@ export function getWebviewContent_liveExt(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <script src="${plotlyUri}"></script>
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; padding: 4px 4px; font-family: var(--vscode-font-family); font-size: 12px; color: var(--vscode-foreground); background: transparent; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
