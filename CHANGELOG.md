@@ -4,7 +4,7 @@ All notable changes to the "nmbench" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [0.3.2] - 2026-07-06
+## [0.3.3] - 2026-07-06
 
 ### Added
 - **Setting** `nmbench.browser.fileExtensions` (default `["mod", "ctl"]`) — file extensions displayed in the **NMBENCH: BROWSER** tree view. The tree view refreshes automatically when the value changes.

@@ -86,7 +86,7 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-### 0.3.2
+### 0.3.3
 * **Positron compatibility** — the extension now installs on Positron and other VS Code-based IDEs with an older bundled VS Code base
 * **Settings UI** — new `nmbench.browser.fileExtensions` and `nmbench.nonmem.executablePath` entries; a gear icon on the BROWSER toolbar jumps directly to nmbench settings
 * **Model Development (not yet validated)** view container in the Activity Bar (Pharmpy / Pharmr-based, **alpha**) — a Generate Code button on each view emits an editable R script into an untitled editor tab:
