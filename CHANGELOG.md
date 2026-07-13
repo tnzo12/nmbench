@@ -4,11 +4,6 @@ All notable changes to the "nmbench" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-<<<<<<< Updated upstream
-## [0.3.5] - 2026-07-06
-
-### Changed
-=======
 ## [0.4.0] - 2026-07-13
 
 ### Added
@@ -58,7 +53,6 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [0.3.5] - 2026-07-06
 
 ### Changed
->>>>>>> Stashed changes
 - **Plotly is now bundled locally** at `resources/lib/plotly-2.32.0.min.js` (~3.5 MB) and every webview (`getWebviewContent_plotly`, `getWebviewContent_heatmap_plotly`, `getWebviewContent_hist`, `getWebviewContent_liveExt`) resolves it via `panel.webview.asWebviewUri()`. Previously the script tag pointed at `https://cdn.plot.ly/plotly-2.32.0.min.js`; bundling removes the network dependency so plots work offline and are unaffected if the CDN URL ever changes.
 
 ## [0.3.3] - 2026-07-06
