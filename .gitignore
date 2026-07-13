@@ -4969,3 +4969,4 @@ out/webview.js
 out/webview.js.map
 out/test/extension.test.js
 out/test/extension.test.js.map
+node_modules/.DS_Store
