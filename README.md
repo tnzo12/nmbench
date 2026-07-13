@@ -87,8 +87,6 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
-<<<<<<< Updated upstream
-=======
 ### 0.4.0
 * **Pharmpy/R view** — Model Builder and AMD Script Generator are now tabs inside a single view with a shared dataset / model file picker at the top.
 * **Generate & Run** — new button that writes the R script and runs it in a terminal in one click.
@@ -103,7 +101,6 @@ For feedbacks, https://github.com/tnzo12/nmbench
 * **Output goes next to the dataset** — generated scripts inject `setwd(dirname(<input>))` so `run_amd()` writes into the dataset folder rather than a stray working directory. The untitled tab is also anchored there so *Save As* defaults to that folder (fixes the read-only `/` write error on macOS/Linux).
 * **File naming** — generated scripts open as `amd_<dataset>.R` / `mb_<source>.R`, reusing the same tab across regenerations unless the user has edited it.
 
->>>>>>> Stashed changes
 ### 0.3.5
 * **Plotly bundled locally** — data inspector, heatmap, histogram, and live estimation monitor no longer depend on the Plotly CDN. Plots work offline and are unaffected if the upstream URL ever changes.
 
