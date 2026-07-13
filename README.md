@@ -79,6 +79,7 @@ The following settings are available under **Preferences → Settings → Extens
 
 * `nmbench.browser.fileExtensions` — file extensions shown in the **NMBENCH: BROWSER** tree view. Enter without the leading dot. Default: `["mod", "ctl"]`
 * `nmbench.nonmem.executablePath` — path to the NONMEM executable (`nmfe*`) used as the default when running NONMEM from a `.mod`/`.ctl` file. Default: `/opt/nm75/util/nmfe75` (e.g., `C:\nm75\util\nmfe75.bat` on Windows)
+* `nmbench.rscript.executablePath` — path to the `Rscript` executable used by *Setup Env* and *Generate & Run*. Leave blank to auto-detect from `PATH`, then the Windows install roots. Default: empty
 * `nmbench.modFileViewer.hideModelFitDirs` — hide folders whose name contains `modelfit_dir` in the tree view. Toggleable from the eye icon in the view title bar. Default: `false`
 
 ## Known Issues
@@ -86,6 +87,23 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
+<<<<<<< Updated upstream
+=======
+### 0.4.0
+* **Pharmpy/R view** — Model Builder and AMD Script Generator are now tabs inside a single view with a shared dataset / model file picker at the top.
+* **Generate & Run** — new button that writes the R script and runs it in a terminal in one click.
+* **Folder-scoped Estimation Monitor** — right-click a `modelfit_dir*` folder to launch the monitor on that folder only.
+* **Show R Scripts** button added to the BROWSER title bar.
+* **Setting** `nmbench.rscript.executablePath` — pin a specific `Rscript` if you have multiple R installs.
+
+### 0.3.6
+* **AMD Script Generator — Search space (MFL) builder** — the free-form search_space textarea is replaced by a card-based GUI. Presets (Default / Basic PK / Exhaustive PK / Covariates only) plus per-statement cards for ABSORPTION, ELIMINATION, LAGTIME, TRANSITS, PERIPHERALS, COVARIATE, and METABOLITE. Multi-select chips auto-compact to `*` when a category is fully selected. Live preview of compiled MFL; text-mode fallback for advanced users. All chips have hover tooltips; `?` help buttons on COVARIATE and METABOLITE cards.
+* **Environment installer** — new *Setup Env.* button (both in the view-title toolbar and next to *Generate Code*) runs a bundled cross-platform `pharmpy_install.R` in a terminal. Prints OS/tools diagnostics, installs Miniconda / conda env / pharmr / pharmpy as needed with colored `[OK] / [FAIL]` markers. On Windows, `Rscript` is auto-detected under `C:\Program Files\R\R-*\bin\` if it isn't on PATH. Works in PowerShell, cmd.exe, and *nix shells.
+* **Generated R scripts self-heal the Python binding** — every AMD / Model Builder script now includes a `use_condaenv("r-reticulate")` preamble so pharmpy resolves consistently regardless of shell environment; `search_space` is emitted as a single-line string to avoid MFL parser issues with embedded newlines.
+* **Output goes next to the dataset** — generated scripts inject `setwd(dirname(<input>))` so `run_amd()` writes into the dataset folder rather than a stray working directory. The untitled tab is also anchored there so *Save As* defaults to that folder (fixes the read-only `/` write error on macOS/Linux).
+* **File naming** — generated scripts open as `amd_<dataset>.R` / `mb_<source>.R`, reusing the same tab across regenerations unless the user has edited it.
+
+>>>>>>> Stashed changes
 ### 0.3.5
 * **Plotly bundled locally** — data inspector, heatmap, histogram, and live estimation monitor no longer depend on the Plotly CDN. Plots work offline and are unaffected if the upstream URL ever changes.
 

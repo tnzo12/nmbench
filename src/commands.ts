@@ -229,7 +229,7 @@ export function showModFileContextMenu(nodes: (vscode.Uri | (vscode.TreeItem & {
 }
 
 // Function For NONMEM run
-export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[], context: vscode.ExtensionContext) {
+export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeItem & { uri: vscode.Uri }))[]) {
     let uris: vscode.Uri[];
 
     if (isUriArray(nodes)) {
@@ -249,11 +249,9 @@ export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeIt
     const fileNames = uris.map(uri => path.basename(uri.fsPath)).join(' ');
     const fileNamesLst = uris.map(uri => path.basename(uri.fsPath).replace(/\.(mod|ctl)$/i, '.lst')).join(' ');
 
-    // Prefer the user setting; fall back to legacy globalState (from < 0.3.2) then to the built-in default
     const config = vscode.workspace.getConfiguration('nmbench');
     const settingPath = config.get<string>('nonmem.executablePath', '');
-    const legacyPath = context.globalState.get<string>('nonmemPath', '');
-    const previousInput = settingPath || legacyPath || '/opt/nm75/util/nmfe75';
+    const previousInput = settingPath || '/opt/nm75/util/nmfe75';
     let defaultCommandSyntax = `${previousInput} ${fileNames} ${fileNamesLst}`;
 
     vscode.window.showInputBox({
@@ -262,9 +260,7 @@ export function showModFileContextMenuNONMEM(nodes: (vscode.Uri | (vscode.TreeIt
     }).then(input => {
         if (input) {
             const [nonmemPath] = input.split(' ', 1);
-            // Persist to the user setting so it appears in Settings UI; keep globalState in sync as a fallback
             config.update('nonmem.executablePath', nonmemPath, vscode.ConfigurationTarget.Global);
-            context.globalState.update('nonmemPath', nonmemPath);
             const terminalName = path.basename(uris[0].fsPath); // 터미널 이름을 파일 이름으로 설정
             const shellPath = os.platform() === 'win32' ? 'cmd.exe' : undefined;
 

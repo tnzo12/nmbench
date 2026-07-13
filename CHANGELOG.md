@@ -4,9 +4,61 @@ All notable changes to the "nmbench" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+<<<<<<< Updated upstream
 ## [0.3.5] - 2026-07-06
 
 ### Changed
+=======
+## [0.4.0] - 2026-07-13
+
+### Added
+- **Unified activity-bar view** `nmbench: Pharmpy/R` — Model Builder and AMD Script Generator now live as tabs inside one webview instead of two side-by-side views, so only one panel is expanded at a time. Sub-panels are DOM-isolated via IIFE-scoped `document` / `window` / `acquireVsCodeApi` proxies.
+- **Shared dataset / model file input** at the top of the Pharmpy/R view — routes to AMD's `#input` and to Model Builder's `#dataset` or `#modelFile` (auto-switching the base tab by file extension).
+- **Generate & Run** button (both tabs) — writes the R script to disk next to the source (`amd_<name>.R` / `mb_<name>.R`, `_2.R` on collision) and immediately runs it in a new terminal via `Rscript`.
+- **Setting** `nmbench.rscript.executablePath` — user-configurable `Rscript` path; used first, then `PATH`, then Windows `C:\Program Files\R\R-*\bin\[x64\]\Rscript.exe`. Windows version fallback now sorts numerically (R-10 > R-4) instead of lexicographically.
+- **Context menu** *Monitor estimation* on `modelfit_dir*` folders in the BROWSER tree — opens the Estimation Monitor scoped to that folder with the most-recent run auto-selected. Workspace-wide scan (existing toolbar entry replaced by *Show R Scripts*) still available via the command palette.
+- **AMD Advanced section** collapsed by default (`strategy` / `retries_strategy` / `parameter_uncertainty_method` / `seed`). `seed` default is now `123456` instead of pharmpy's overwhelming random default.
+- **Section header tooltips** (Pharmpy/R view) — hover shows which pharmpy function(s) each section maps to.
+
+### Changed
+- **Estimation Monitor** now walks the workspace recursively (skips `node_modules`, `.git`, `.venv`, `.modeldb`, `subcontexts`, `annotations`, and other heavy dirs; depth-capped) so PsN runs in subdirectories are picked up, not just workspace-root ones. Sub-`modelfit_dir` folder-scoped launches skip the walk entirely. The 10-second poll now only emits `addRun` for newly discovered runs instead of re-posting `populate`, so the user's current selection is no longer reset every tick.
+- **BROWSER title bar** — Estimation Monitor button removed (now folder-scoped via context menu); **Show R Scripts** (`$(files)` icon) added in its place, opening the extension's `Rscripts` folder for editing.
+- **Model Builder** — dropped the redundant *Model name* input; the emitted script no longer calls `set_name`. The base-file inputs are hidden inside the tabbed layout because the shared picker above drives them.
+- **Palette** — Pharmpy/R view adopts the muted estview colors (`#6699cc` blue / `#3bb273` green / `#f2c94c` yellow / `#b191d6` purple / `#e24c4b` red) via CSS custom properties. Section header colors signal role: MB (Basic/Structural blue, IIV green, Residual error red, Output purple), AMD (Modality + PK-PD/TMDD/Drug Metabolite red, Common blue, Initial estimates + Advanced yellow, Search space blue).
+- **Header stays stuck to the top** while the sub-panel scrolls (previously the tab bar was hidden behind the shared input row).
+
+### Removed
+- Dead code cleanup: `extension.showSumoCommand`, `extension.watchLiveExtFromTreeView`, `getWebviewContent_echarts`, legacy `nonmemPath` globalState fallback, orphan `sdtab/patab` filename filter comments.
+
+### Fixed
+- **Context menu** *Generate AMD Report* now only appears on folders whose name starts with `amd` (case-insensitive) — no longer clutters every folder's menu.
+- **AMD Advanced chevron** rotates on toggle (▸ → ▾).
+
+## [0.3.6] - 2026-07-11
+
+### Added
+- **AMD Script Generator — MFL search-space builder**. The single `search_space` textarea is replaced by a card-based GUI. Presets (`Default` / `Basic PK` / `Exhaustive PK` / `Covariates only`) plus editable per-statement cards for `ABSORPTION`, `ELIMINATION`, `LAGTIME`, `TRANSITS`, `PERIPHERALS`, `COVARIATE`, and `METABOLITE`. Chips are hover-tooltipped (short one-liner per option); `?` help buttons on `COVARIATE` and `METABOLITE` expand a longer explanation panel. Multi-select chip groups collapse to `*` when all options are selected (aligned with pharmpy docs); TRANSITS depot uses a two-chip multi-select where selecting both auto-emits `*`. Live compiled-MFL preview is always visible; an *Edit as text* toggle exposes the raw MFL for advanced users.
+- **Setup Env. button** in both AMD Script Generator and Model Builder views, plus a `$(tools)` toolbar action, that runs a new bundled `resources/pharmpy_install.R` script in a terminal. The script is idempotent: reports OS, tools, PATH state, and each of 6 install steps with colored `[OK] / [FAIL]` markers, tracks the failure count, and prints a big green *ALL CHECKS PASSED* / red *N STEPS FAILED* summary. Non-interactive and cross-platform (macOS / Windows / Linux). On Windows, `Rscript` is auto-detected under `C:\Program Files\R\R-*\bin\[x64\]\Rscript.exe` when it isn't on PATH; the PowerShell call-operator (`&`) is used when invoking an absolute path so the command actually executes.
+- **`Preset: Custom`** — the preset dropdown auto-switches to *Custom* the moment any chip / row / number is changed by hand.
+
+### Changed
+- **Generated R scripts (AMD, Model Builder)** now include a `RETICULATE_PYTHON` / `use_condaenv("r-reticulate", required = TRUE)` preamble emitted *before* `library(pharmr)`, so pharmpy resolves from the installer-created conda env regardless of shell state.
+- **`search_space` is emitted as a single-line R string** (whitespace collapsed to single spaces) — the pharmpy MFL parser does not tolerate embedded newlines inside the passed string.
+- **Generated scripts run `setwd(dirname(<input>))`** immediately after `library(pharmr)`, so `run_amd()` / model-write outputs land next to the dataset instead of the R session's ambient cwd.
+- **Untitled scripts are anchored at the dataset directory** (fallback: workspace root, then process cwd) so *Save As* defaults to the right folder rather than resolving to filesystem root (which was read-only on macOS/Linux — the "EROFS" error).
+- **File naming** — AMD emits `amd_<dataset-basename>.R`, Model Builder emits `mb_<source-여basename>.R`. Special characters are sanitised; name collisions add `_2`, `_3`, ....
+- **Chip / help styling** — inline-flex keeps `[+n input][Add]` and `depot: […]` chips grouped on the same line at any sidebar width; TRANSITS number input is now responsive-width via CSS `field-sizing: content` (22–90 px); disabled-card chips still fire hover tooltips (removed `pointer-events: none`); `?` help panels replace always-visible hint text on `COVARIATE` and `METABOLITE`; `METABOLITE` header text is yellow to signal drug_metabolite-only.
+- **COVARIATE row** wraps to two visual rows on narrow widths; the `×` / `+` operation control is now a two-chip toggle instead of a select (arrow no longer clashes with the glyph).
+
+### Fixed
+- **Hover tooltips on chips** were suppressed in the default *Empty / Default* preset because `.mfl-card.disabled .mfl-card-body { pointer-events: none }` blocked all pointer events.
+- **`.fails` counter in `pharmpy_install.R`** — the post-verify branches (`requireNamespace` / `py_module_available` / `file.exists`) previously printed `[FAIL]` without incrementing `.fails`, so the final summary could read *ALL PASSED* even when pharmr or pharmpy failed to install. Now routed through a `.mark_fail()` helper that bumps the counter.
+- **Rscript invocation on Windows PowerShell** — a line starting with `"C:\..."` was parsed as a string expression rather than executed. Bare `Rscript` is used when it resolves on PATH; the call operator `&` is prepended when a fallback absolute path is used.
+
+## [0.3.5] - 2026-07-06
+
+### Changed
+>>>>>>> Stashed changes
 - **Plotly is now bundled locally** at `resources/lib/plotly-2.32.0.min.js` (~3.5 MB) and every webview (`getWebviewContent_plotly`, `getWebviewContent_heatmap_plotly`, `getWebviewContent_hist`, `getWebviewContent_liveExt`) resolves it via `panel.webview.asWebviewUri()`. Previously the script tag pointed at `https://cdn.plot.ly/plotly-2.32.0.min.js`; bundling removes the network dependency so plots work offline and are unaffected if the CDN URL ever changes.
 
 ## [0.3.3] - 2026-07-06

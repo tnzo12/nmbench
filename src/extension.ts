@@ -4,8 +4,9 @@ import * as fs from 'fs';
 import * as util from 'util';
 import * as childProcess from 'child_process';
 import { EstimatesWebViewProvider } from './estview';
-import { AmdViewProvider } from './amdView';
-import { ModelBuilderViewProvider } from './modelBuilderView';
+import { ModelDevViewProvider } from './modelDevView';
+import { openAmdReport } from './amdReport';
+import { findRscript, formatRscriptCommand } from './rscriptRunner';
 import { ModFile, ModFolder, ModFileViewerProvider, nmbenchDecorationProvider, getModelFileRegex } from './modview';
 import { showModFileContextMenu, showModFileContextMenuNONMEM, showRScriptCommand, runUpdateInits, deleteModelFiles } from './commands';
 import { readNmTable, readNmTable_heatmap, readNmTable_ext } from './tblread';
@@ -13,6 +14,9 @@ import { getWebviewContent, getWebviewContent_plotly, getWebviewContent_heatmap_
 
 const readFile = util.promisify(fs.readFile);
 
+
+// findRscript / formatRscriptCommand / runRscriptFileInTerminal live in
+// src/rscriptRunner.ts so the sub-panels can reuse them.
 
 async function seedDecorations(dirPath: string): Promise<void> {
     let entries: string[];
@@ -77,6 +81,66 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tnzo12.nmbench');
   });
   context.subscriptions.push(openSettings);
+
+  // Runs the bundled pharmpy_install.R script directly in a terminal via
+  // `Rscript`. Cross-platform: works on macOS, Windows, and Linux. The script
+  // itself is idempotent — every step (miniconda install, conda env create,
+  // pharmr/pharmpy install) is skipped when already satisfied, and it prints
+  // system diagnostics up-front so users can see which Python / conda / R the
+  // run is bound to.
+  //
+  // Rscript resolution: first tries PATH, then on Windows falls back to the
+  // standard R install locations (`C:\Program Files\R\R-*\bin\[x64\]Rscript.exe`).
+  // This catches the common case where a user installed R but forgot to tick
+  // "Add R to PATH" during setup. If no Rscript can be found we prompt the
+  // user to install R from CRAN.
+  // AMD Report — reads on-disk artifacts (metadata.json / results.json /
+  // subtool subdirs) from an AMD output folder and renders them in a webview.
+  // Workaround for pharmpy's built-in report failing on Windows via reticulate
+  // (pharmpy/pharmpy#3399). Invoked from the BROWSER tree by right-clicking
+  // a folder; also usable from the command palette on the active file's dir.
+  const generateAmdReport = vscode.commands.registerCommand('extension.generateAmdReport', async (node?: { resourceUri?: vscode.Uri }) => {
+    let uri: vscode.Uri | undefined = node?.resourceUri;
+    if (!uri) {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Select AMD output folder'
+      });
+      if (!picked || picked.length === 0) { return; }
+      uri = picked[0];
+    }
+    await openAmdReport(uri, context.extensionUri);
+  });
+  context.subscriptions.push(generateAmdReport);
+
+  const openPharmrSetup = vscode.commands.registerCommand('extension.openPharmrSetup', async () => {
+    const scriptUri = vscode.Uri.joinPath(context.extensionUri, 'resources', 'pharmpy_install.R');
+    try {
+      await vscode.workspace.fs.stat(scriptUri);
+    } catch {
+      vscode.window.showErrorMessage(`pharmpy_install.R not found at ${scriptUri.fsPath}`);
+      return;
+    }
+    const loc = findRscript();
+    if (!loc) {
+      const install = 'Open CRAN download page';
+      const choice = await vscode.window.showErrorMessage(
+        'Rscript could not be found. Install R first — on Windows, be sure to tick "Add R to PATH" during the installer.',
+        install
+      );
+      if (choice === install) {
+        vscode.env.openExternal(vscode.Uri.parse('https://cran.r-project.org/'));
+      }
+      return;
+    }
+    const scriptPath = scriptUri.fsPath;
+    const term = vscode.window.createTerminal({ name: 'nmbench: pharmpy install' });
+    term.show(true);
+    term.sendText(formatRscriptCommand(loc, scriptPath));
+  });
+  context.subscriptions.push(openPharmrSetup);
 
   // 설정 변경 감지 → 자동 새로고침
   const disp = vscode.workspace.onDidChangeConfiguration(e => {
@@ -282,7 +346,7 @@ export function activate(context: vscode.ExtensionContext) {
             showModFileContextMenu(finalNodes);
         }),
         vscode.commands.registerCommand('extension.showModFileContextMenuNONMEM', (uri: vscode.Uri) => {
-            showModFileContextMenuNONMEM([uri], context);
+            showModFileContextMenuNONMEM([uri]);
         }),
         vscode.commands.registerCommand('extension.runUpdateInits', (node?: ModFile) => {
             const selectedNodes = node ? [node] : treeView.selection.filter(n => n instanceof ModFile);
@@ -293,83 +357,6 @@ export function activate(context: vscode.ExtensionContext) {
             const selectedNodes = node ? [node] : treeView.selection.filter(n => n instanceof ModFile);
             if (selectedNodes.length === 0) { return; }
             deleteModelFiles(selectedNodes as ModFile[]).then(() => modFileViewerProvider.refresh());
-        }),
-
-        vscode.commands.registerCommand('extension.showSumoCommand', async (node?: ModFile | ModFolder) => {
-            // 1) 현재 트리뷰 selection 얻기
-            let selectedNodes = treeView.selection;
-
-            // 2) 우클릭한 node가 selection에 없다면, 그것만 선택으로 덮어쓰기
-            if (node && !selectedNodes.some(selected => selected.uri.fsPath === node.uri.fsPath)) {
-                selectedNodes = [node]; // 기존 selection 무시
-            }
-
-            if (!selectedNodes || selectedNodes.length === 0) {
-                vscode.window.showErrorMessage('No items selected for SUMO.');
-                return;
-            }
-
-            // 3) 다중 선택된 ModFile들에 대해 .lst 파일 수집
-            const lstFiles: vscode.Uri[] = [];
-
-            for (const item of selectedNodes) {
-                // 폴더 선택은 무시
-                if (!(item instanceof ModFile)) {
-                    continue;
-                }
-
-                // 파일(.mod/.ctl)이면 .lst 치환
-                const lstUri = vscode.Uri.file(item.uri.fsPath.replace(/\.[^.]+$/, '.lst'));
-                try {
-                    const stat = await vscode.workspace.fs.stat(lstUri);
-                    if (stat.type === vscode.FileType.File) {
-                        lstFiles.push(lstUri);
-                    }
-                } catch (err) {
-                    // .lst 파일이 없으면 무시
-                }
-            }
-
-            // 4) .lst 파일이 하나도 없으면 에러
-            if (lstFiles.length === 0) {
-                vscode.window.showErrorMessage('No .lst files found for SUMO(PsN Summary function)');
-                return;
-            }
-
-            // 5) SUMO 명령 실행
-            const options = { cwd: path.dirname(lstFiles[0].fsPath) };
-            const input = await vscode.window.showInputBox({
-                prompt: 'Enter parameters for Sumo command:',
-                value: `sumo ${lstFiles.map(file => path.basename(file.fsPath)).join(' ')}`
-            });
-            if (!input) { return; }
-
-            const outputFileName = (lstFiles.length > 1)
-                ? 'sumo_compare.txt'
-                : `${path.basename(lstFiles[0].fsPath, path.extname(lstFiles[0].fsPath))}_sumo.txt`;
-            const outputFilePath = path.join(path.dirname(lstFiles[0].fsPath), outputFileName);
-            const command = `${input} > "${outputFilePath}" 2>&1`;
-
-            const execAsync = util.promisify(childProcess.exec);
-            try {
-                await execAsync(command, options);
-            } catch {
-                // sumo이 비정상 종료해도 출력 파일에 내용이 있을 수 있으므로 계속 진행
-            }
-
-            try {
-                const data = await fs.promises.readFile(outputFilePath, 'utf-8');
-                const panel = vscode.window.createWebviewPanel(
-                    'sumoOutput',
-                    outputFileName,
-                    vscode.ViewColumn.One,
-                    {}
-                );
-                panel.webview.html = getWebviewContent(data);
-            } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
-                vscode.window.showErrorMessage(`Error reading SUMO output: ${message}`);
-            }
         }),
 
         // for managing Rscript foler (user-definable)
@@ -576,10 +563,23 @@ export function activate(context: vscode.ExtensionContext) {
 
             vscode.commands.executeCommand('extension.showHeatmap', vscode.Uri.file(selected.description!));
         }),
-        vscode.commands.registerCommand('extension.watchLiveExt', async () => {
+        vscode.commands.registerCommand('extension.watchLiveExt', async (node?: ModFolder | vscode.Uri) => {
             const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
+
+            // If invoked from a right-click on a `modelfit_dir*` folder, scope
+            // the scan to that one folder (a single readdir of its NM_run*
+            // subdirs — near-zero cost). Otherwise fall back to the whole
+            // workspace with the recursive-with-prune walker below.
+            const explicitFolder: string | undefined =
+                node instanceof ModFolder ? node.uri.fsPath :
+                node instanceof vscode.Uri ? node.fsPath :
+                undefined;
+            const panelTitle = explicitFolder
+                ? `Estimation Monitor: ${path.basename(explicitFolder)}`
+                : 'Estimation Monitor';
+
             const panel = vscode.window.createWebviewPanel(
-                'liveExt', 'Estimation Monitor',
+                'liveExt', panelTitle,
                 vscode.ViewColumn.Two,
                 { enableScripts: true, retainContextWhenHidden: true }
             );
@@ -589,45 +589,97 @@ export function activate(context: vscode.ExtensionContext) {
             const runMap = new Map<string, string>();
             let activeInterval: ReturnType<typeof setInterval> | undefined;
 
-            const toRunName = (fsPath: string): string => {
-                const wsFolders = vscode.workspace.workspaceFolders ?? [];
-                const wsFolder  = wsFolders.find(w => fsPath.startsWith(w.uri.fsPath));
-                return wsFolder ? path.relative(wsFolder.uri.fsPath, path.dirname(fsPath)) : path.dirname(fsPath);
+            // Skip / depth policy for the workspace-wide fallback walk. Pruned
+            // so this stays snappy on OneDrive / node_modules / pharmpy caches.
+            const SKIP_DIRS = new Set([
+                'node_modules', '.git', '.svn', '.hg',
+                '.venv', 'venv', '__pycache__',
+                '.modeldb', 'subcontexts', 'annotations',
+                'dist', 'out', '.next', '.turbo', '.cache'
+            ]);
+            const MAX_DEPTH = 6;
+
+            const collectFromModelfitDir = async (mfPath: string, wsRoot: string): Promise<void> => {
+                let nmDirs: string[];
+                try { nmDirs = await fs.promises.readdir(mfPath); } catch { return; }
+                for (const sub of nmDirs) {
+                    if (!/^NM_run/i.test(sub)) { continue; }
+                    const psnExt = path.join(mfPath, sub, 'psn.ext');
+                    try {
+                        await fs.promises.access(psnExt);
+                        const runName = path.relative(wsRoot, path.dirname(psnExt));
+                        runMap.set(runName, psnExt);
+                    } catch { /* no psn.ext yet */ }
+                }
             };
 
-            // Scan workspace for all modelfit_dir*/NM_run*/psn.ext
-            // Uses fs.promises directly to bypass files.watcherExclude / search.exclude settings
-            const scanWorkspace = async () => {
-                const wsFolders = vscode.workspace.workspaceFolders ?? [];
-                for (const wf of wsFolders) {
-                    let mfDirs: string[];
-                    try { mfDirs = await fs.promises.readdir(wf.uri.fsPath); } catch { continue; }
-                    for (const entry of mfDirs) {
-                        if (!entry.toLowerCase().startsWith('modelfit_dir')) { continue; }
-                        const mfPath = path.join(wf.uri.fsPath, entry);
-                        let nmDirs: string[];
-                        try { nmDirs = await fs.promises.readdir(mfPath); } catch { continue; }
-                        for (const sub of nmDirs) {
-                            if (!/^NM_run/i.test(sub)) { continue; }
-                            const psnExt = path.join(mfPath, sub, 'psn.ext');
-                            try {
-                                await fs.promises.access(psnExt);
-                                const runName = path.relative(wf.uri.fsPath, path.dirname(psnExt));
-                                runMap.set(runName, psnExt);
-                            } catch { continue; }
+            const walk = async (dir: string, wsRoot: string, depth: number): Promise<void> => {
+                let entries: fs.Dirent[];
+                try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+                for (const ent of entries) {
+                    if (!ent.isDirectory()) { continue; }
+                    const name = ent.name;
+                    if (name.toLowerCase().startsWith('modelfit_dir')) {
+                        await collectFromModelfitDir(path.join(dir, name), wsRoot);
+                        continue; // don't recurse into a modelfit_dir itself
+                    }
+                    if (name.startsWith('.')) { continue; }        // hidden dirs
+                    if (SKIP_DIRS.has(name.toLowerCase())) { continue; }
+                    if (depth >= MAX_DEPTH) { continue; }
+                    await walk(path.join(dir, name), wsRoot, depth + 1);
+                }
+            };
+
+            let initialPopulated = false;
+
+            const scanWorkspace = async (preselect: boolean = false) => {
+                // Snapshot the known runs so we can tell what's new after the scan.
+                const knownBefore = new Set(runMap.keys());
+
+                if (explicitFolder) {
+                    // Folder-scoped: the right-clicked folder IS the modelfit_dir.
+                    // Use the folder itself as the "workspace root" for relative
+                    // run names so labels stay short.
+                    await collectFromModelfitDir(explicitFolder, path.dirname(explicitFolder));
+                } else {
+                    const wsFolders = vscode.workspace.workspaceFolders ?? [];
+                    for (const wf of wsFolders) {
+                        await walk(wf.uri.fsPath, wf.uri.fsPath, 0);
+                    }
+                }
+
+                if (!initialPopulated) {
+                    // First scan → send the full run list. Optionally pre-select
+                    // the most-recently-touched run when we were launched from a
+                    // right-click on a specific modelfit_dir folder.
+                    let selected: string | undefined;
+                    if (preselect && explicitFolder && runMap.size > 0) {
+                        const withMtime = await Promise.all(
+                            [...runMap.entries()].map(async ([name, p]) => {
+                                const m = (await fs.promises.stat(p).catch(() => null))?.mtimeMs ?? 0;
+                                return { name, mtime: m };
+                            })
+                        );
+                        withMtime.sort((a, b) => b.mtime - a.mtime);
+                        selected = withMtime[0].name;
+                    }
+                    panel.webview.postMessage({ command: 'populate', runs: [...runMap.keys()], selected });
+                    initialPopulated = true;
+                } else {
+                    // Subsequent polls → only announce newly-discovered runs.
+                    // Re-sending 'populate' would rebuild the <select>, wiping
+                    // the user's current selection every 10 s (that was the bug).
+                    for (const runName of runMap.keys()) {
+                        if (!knownBefore.has(runName)) {
+                            panel.webview.postMessage({ command: 'addRun', runName });
                         }
                     }
                 }
-                panel.webview.postMessage({ command: 'populate', runs: [...runMap.keys()] });
             };
-            scanWorkspace();
+            scanWorkspace(/* preselect */ !!explicitFolder);
 
             // Poll for newly created psn.ext every 10s (bypasses watcherExclude)
-            const newFileInterval = setInterval(async () => {
-                const before = runMap.size;
-                await scanWorkspace();
-                // scanWorkspace already posts populate; addRun is handled by comparing sizes
-            }, 10000);
+            const newFileInterval = setInterval(() => { scanWorkspace(); }, 10000);
 
             // Handle webview messages
             panel.webview.onDidReceiveMessage(async msg => {
@@ -656,86 +708,6 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             panel.onDidDispose(() => { clearInterval(activeInterval); clearInterval(newFileInterval); });
-        }),
-
-        vscode.commands.registerCommand('extension.watchLiveExtFromTreeView', async (node?: ModFile) => {
-            const selected = node ?? (treeView.selection.find(n => n instanceof ModFile) as ModFile | undefined);
-            if (!selected) { return; }
-
-            const modelFileName = path.basename(selected.uri.fsPath);
-            const dir = path.dirname(selected.uri.fsPath);
-
-            // Find all PsN run dirs whose command.txt references this model file
-            interface RunDir { label: string; description: string; psnExt: string; }
-            const candidates: RunDir[] = [];
-            try {
-                const entries = await fs.promises.readdir(dir);
-                for (const entry of entries) {
-                    const fullPath = path.join(dir, entry);
-                    if (!(await fs.promises.stat(fullPath)).isDirectory()) { continue; }
-                    const commandTxt = path.join(fullPath, 'command.txt');
-                    try {
-                        const cmd = (await fs.promises.readFile(commandTxt, 'utf-8')).trim();
-                        const match = cmd.match(/(\S+\.(?:mod|ctl))\s*$/i);
-                        if (!match || path.basename(match[1]) !== modelFileName) { continue; }
-                    } catch { continue; }
-
-                    // Find psn.ext inside NM_run* subdirs
-                    try {
-                        const subs = await fs.promises.readdir(fullPath);
-                        for (const sub of subs) {
-                            if (!/^NM_run/i.test(sub)) { continue; }
-                            const psnExt = path.join(fullPath, sub, 'psn.ext');
-                            try {
-                                await fs.promises.access(psnExt);
-                                const mtime = (await fs.promises.stat(psnExt)).mtime.toLocaleString();
-                                candidates.push({ label: entry, description: `last modified: ${mtime}`, psnExt });
-                            } catch { continue; }
-                        }
-                    } catch { continue; }
-                }
-            } catch { /* skip */ }
-
-            if (candidates.length === 0) {
-                vscode.window.showInformationMessage(`No estimation run found for ${modelFileName}.`);
-                return;
-            }
-
-            // Pick run if multiple
-            let chosen: RunDir;
-            if (candidates.length === 1) {
-                chosen = candidates[0];
-            } else {
-                const pick = await vscode.window.showQuickPick(candidates, {
-                    placeHolder: `Select run to monitor for ${modelFileName}`
-                });
-                if (!pick) { return; }
-                chosen = pick;
-            }
-
-            // Open monitor panel for chosen psn.ext
-            const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
-            const panel = vscode.window.createWebviewPanel(
-                'liveExt', `Monitor: ${chosen.label}`,
-                vscode.ViewColumn.Two,
-                { enableScripts: true, retainContextWhenHidden: true }
-            );
-            const runName = chosen.label;
-            const data = await readNmTable_ext(chosen.psnExt).catch(() => []);
-            panel.webview.html = getWebviewContent_liveExt([{ runName, data }], theme, getPlotlyUri(panel.webview));
-            panel.webview.postMessage({ command: 'populate', runs: [runName] });
-            panel.webview.postMessage({ command: 'data', runName, data });
-
-            let lastMtime = (await fs.promises.stat(chosen.psnExt).catch(() => null))?.mtimeMs ?? 0;
-            const pollInterval = setInterval(async () => {
-                const stat = await fs.promises.stat(chosen.psnExt).catch(() => null);
-                if (!stat || stat.mtimeMs <= lastMtime) { return; }
-                lastMtime = stat.mtimeMs;
-                const updated = await readNmTable_ext(chosen.psnExt).catch(() => []);
-                panel.webview.postMessage({ command: 'data', runName, data: updated });
-            }, 3000);
-
-            panel.onDidDispose(() => clearInterval(pollInterval));
         }),
 
         vscode.commands.registerCommand('extension.snapshotEstimatesView', () => {
@@ -822,7 +794,6 @@ export function activate(context: vscode.ExtensionContext) {
                 const document = editor.document;
                 const fileName = document.fileName;
 
-                // if (fileName.match(/sdtab\\d*|patab\\d*/)) {
                 const data = await readNmTable(fileName);
                 const panel = vscode.window.createWebviewPanel(
                     'nmTablePlot',
@@ -831,11 +802,9 @@ export function activate(context: vscode.ExtensionContext) {
                     { enableScripts: true }
                 );
 
-                // Get the current theme
                 const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
                 panel.webview.html = getWebviewContent_plotly(data, theme, getPlotlyUri(panel.webview));
 
-                // Handle messages from the webview
                 panel.webview.onDidReceiveMessage(message => {
                     if (message.command === 'requestData') {
                         panel.webview.postMessage({ command: 'plotData', data: data });
@@ -844,7 +813,6 @@ export function activate(context: vscode.ExtensionContext) {
                         panel.webview.postMessage({ command: 'plotData', data: data, config: message.config });
                     }
                 });
-                // }
             }
         })
     );
@@ -854,7 +822,6 @@ export function activate(context: vscode.ExtensionContext) {
         if (editor) {
             const document = editor.document;
             const fileName = document.fileName;
-            // if (fileName.match(/sdtab\\d*|patab\\d*/)) {
             const data = await readNmTable(fileName);
             const panel = vscode.window.createWebviewPanel(
                 'histogramPlot',
@@ -863,10 +830,8 @@ export function activate(context: vscode.ExtensionContext) {
                 { enableScripts: true }
             );
 
-            // Get the current theme
             const theme = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark ? 'vscode-dark' : 'vscode-light';
             panel.webview.html = getWebviewContent_hist(data, theme, getPlotlyUri(panel.webview));
-            // }
         }
     });
 
@@ -877,14 +842,13 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider(EstimatesWebViewProvider.viewType, provider)
     );
 
-    const amdProvider = new AmdViewProvider(context);
+    // Model Builder + AMD Script Generator now share a single tabbed webview
+    // (see modelDevView.ts) so they're mutually exclusive — expanding one
+    // implicitly hides the other. Individual providers are constructed inside
+    // the wrapper.
+    const modelDevProvider = new ModelDevViewProvider(context);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(AmdViewProvider.viewType, amdProvider)
-    );
-
-    const modelBuilderProvider = new ModelBuilderViewProvider(context);
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(ModelBuilderViewProvider.viewType, modelBuilderProvider)
+        vscode.window.registerWebviewViewProvider(ModelDevViewProvider.viewType, modelDevProvider)
     );
 
     vscode.window.onDidChangeActiveTextEditor(() => provider.updateTable());

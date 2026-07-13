@@ -310,7 +310,19 @@ export class ModFolder extends vscode.TreeItem {
         this.id = uri.fsPath;
         this.resourceUri = uri;
         this.tooltip = uri.fsPath;
-        this.contextValue = 'modFolder';
+        // Name-based gate for folder-specific context-menu actions:
+        //   * amd*           -> "Generate AMD Report"
+        //   * modelfit_dir*  -> "Watch Estimation Monitor (this folder)"
+        // Prevents users from firing these on unrelated parent directories.
+        const name = path.basename(uri.fsPath);
+        const lower = name.toLowerCase();
+        if (/^amd/i.test(name)) {
+            this.contextValue = 'amdFolder';
+        } else if (lower.startsWith('modelfit_dir')) {
+            this.contextValue = 'modelfitFolder';
+        } else {
+            this.contextValue = 'modFolder';
+        }
         this.iconPath = {
             light: vscode.Uri.file(path.join(__filename, '..', '..', 'resources', 'light', 'folder.svg')),
             dark: vscode.Uri.file(path.join(__filename, '..', '..', 'resources', 'dark', 'folder.svg'))

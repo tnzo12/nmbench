@@ -10,7 +10,11 @@
     ],
     "icon": "resources/logo.png",
     "publisher": "tnzo12",
+<<<<<<< Updated upstream
     "version": "0.3.5",
+=======
+    "version": "0.4.0",
+>>>>>>> Stashed changes
     "engines": {
         "vscode": "^1.93.0"
     },
@@ -50,7 +54,8 @@
             },
             {
                 "command": "extension.manageRScriptCommand",
-                "title": "Show R Scripts"
+                "title": "Show R Scripts",
+                "icon": "$(files)"
             },
             {
                 "command": "extension.openModFile",
@@ -177,6 +182,18 @@
                 "title": "Open nmbench Settings",
                 "category": "nmbench",
                 "icon": "$(gear)"
+            },
+            {
+                "command": "extension.openPharmrSetup",
+                "title": "Check / install pharmpy environment",
+                "category": "nmbench",
+                "icon": "$(tools)"
+            },
+            {
+                "command": "extension.generateAmdReport",
+                "title": "Generate AMD Report",
+                "category": "nmbench",
+                "icon": "$(graph)"
             }
         ],
         "keybindings": [
@@ -197,7 +214,7 @@
             "activitybar": [
                 {
                     "id": "modelDevelopment",
-                    "title": "Model Development",
+                    "title": "nmbench: Pharmpy/R",
                     "icon": "resources/model-development.svg"
                 }
             ]
@@ -216,13 +233,8 @@
             ],
             "modelDevelopment": [
                 {
-                    "id": "modelBuilderView",
-                    "name": "nmbench: Model Builder",
-                    "type": "webview"
-                },
-                {
-                    "id": "amdView",
-                    "name": "nmbench: AMD Script Generator",
+                    "id": "modelDevelopmentView",
+                    "name": "nmbench: Pharmpy/R",
                     "type": "webview"
                 }
             ]
@@ -245,6 +257,11 @@
                     "type": "string",
                     "default": "/opt/nm75/util/nmfe75",
                     "markdownDescription": "Path to the NONMEM executable (`nmfe*`). Used as the default when running NONMEM from a `.mod`/`.ctl` file. Examples: `/opt/nm75/util/nmfe75` on Linux/macOS, `C:\\nm75\\util\\nmfe75.bat` on Windows."
+                },
+                "nmbench.rscript.executablePath": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Path to the `Rscript` executable used by Setup Env and Generate & Run. Leave blank to auto-detect: first tries `Rscript` on `PATH`; on Windows also falls back to `C:\\Program Files\\R\\R-*\\bin\\[x64\\]\\Rscript.exe` (highest version). Set explicitly when you have multiple R versions and want to pin one (e.g., `/opt/homebrew/bin/Rscript` or `C:\\Program Files\\R\\R-4.4.2\\bin\\x64\\Rscript.exe`)."
                 }
             }
         },
@@ -267,18 +284,28 @@
                 },
                 {
                     "command": "extension.showRScriptCommandFromTreeView",
-                    "when": "viewItem == modFile || viewItem == modFolder",
+                    "when": "viewItem == modFile || viewItem == modFolder || viewItem == amdFolder || viewItem == modelfitFolder",
                     "group": "3.Rscript operations"
                 },
                 {
                     "command": "extension.manageRScriptCommand",
-                    "when": "viewItem == modFile || viewItem == modFolder",
+                    "when": "viewItem == modFile || viewItem == modFolder || viewItem == amdFolder || viewItem == modelfitFolder",
                     "group": "3.Rscript operations"
                 },
                 {
                     "command": "extension.deleteModelFiles",
                     "when": "viewItem == modFile",
                     "group": "9.Delete"
+                },
+                {
+                    "command": "extension.generateAmdReport",
+                    "when": "viewItem == amdFolder",
+                    "group": "2.Navigation"
+                },
+                {
+                    "command": "extension.watchLiveExt",
+                    "when": "viewItem == modelfitFolder",
+                    "group": "2.Navigation"
                 }
             ],
             "view/title": [
@@ -288,7 +315,7 @@
                     "group": "navigation@1"
                 },
                 {
-                    "command": "extension.watchLiveExt",
+                    "command": "extension.manageRScriptCommand",
                     "when": "view == modFileViewer",
                     "group": "navigation@2"
                 },
@@ -327,6 +354,11 @@
                     "command": "extension.snapshotEstimatesView",
                     "when": "view == estimatesView",
                     "group": "navigation"
+                },
+                {
+                    "command": "extension.openPharmrSetup",
+                    "when": "view == modelDevelopmentView",
+                    "group": "navigation@1"
                 }
             ],
             "editor/title": [
