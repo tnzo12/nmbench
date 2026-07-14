@@ -792,7 +792,7 @@ function renderProgressionTable(stages: ProgressionStage[]): string {
         const dOfv = (s.ofv !== undefined && prevOfv !== undefined) ? s.ofv - prevOfv : undefined;
         const ofvCell = s.kind === 'fit' ? fmtCell(s.ofv)
             : s.kind === 'analysis' ? '<span class="inline-hint">analysis</span>'
-            : '<span class="inline-hint">skipped</span>';
+            : '<span class="inline-hint">no data</span>';
         const html = `<tr>
             <td><span class="progression-link" data-scroll-to="subctx-${esc(s.name)}" title="Jump to ${esc(s.name)}">${esc(s.name)}</span></td>
             <td class="num">${ofvCell}</td>
@@ -838,7 +838,7 @@ function renderProgressionTree(stages: ProgressionStage[]): string {
         } else if (s.kind === 'analysis') {
             metric = 'analysis';
         } else if (s.kind === 'skipped') {
-            metric = 'skipped';
+            metric = 'no data';
         }
         const candLabel = s.kind === 'fit' && s.numCandidates !== undefined ? `${s.numCandidates} fits`
             : (s.kind === 'analysis' && s.numCandidates !== undefined ? `${s.numCandidates} results` : '');
@@ -858,7 +858,7 @@ function renderProgressionTree(stages: ProgressionStage[]): string {
     return `<div class="subsec">
         <h3>Model evolution</h3>
         <div class="ptree">${parts.join('')}</div>
-        <div class="hint">● fit &nbsp;·&nbsp; ◆ analysis &nbsp;·&nbsp; ○ skipped &nbsp;·&nbsp; click to jump</div>
+        <div class="hint">● fit &nbsp;·&nbsp; ◆ analysis &nbsp;·&nbsp; ○ no data &nbsp;·&nbsp; click to jump</div>
       </div>`;
 }
 

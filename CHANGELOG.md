@@ -4,6 +4,25 @@ All notable changes to the "nmbench" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.4.2] - 2026-07-14
+
+### Added
+- **AMD Common** — new inputs for `allometric_variable` and `mechanistic_covariates` passed to `run_amd()`.
+- **AMD Search space** — COVARIATE parameter/covariate slots accept free-text now; a comma-separated list (e.g. `WT, AGE`) is auto-wrapped as `[WT,AGE]` in emitted MFL.
+- **Pre-flight check** — Generate Code / Generate & Run warn (with option to proceed) when `mechanistic_covariates` overlaps with the `COVARIATE?(...)` clauses in `search_space`, a combination that trips a pharmpy 2.1 crash.
+
+### Changed
+- **AMD Report** — a subcontext with no `results.json` now reads *no data* in the progression tree/table instead of *skipped*, so a mid-run crash isn't mistaken for a completed step.
+
+## [0.4.1] - 2026-07-13
+
+### Added
+- **AMD Common** — new inputs for `occasion` (IOV column), `lloq_limit`, and `lloq_method` (m1 / m3 / m4 / m5 / m6 / m7) passed straight to `run_amd()`.
+
+### Fixed
+- **AMD Search space (MFL)** — `ABSORPTION` and `ELIMINATION` no longer collapse to `*` when every option is selected. pharmpy 2.1.x accepts the wildcard for `TRANSITS` / `PERIPHERALS` / `LAGTIME` / `COVARIATE` but throws `'Wildcard' object is not iterable` for these two, so we emit the explicit list instead.
+- **AMD Common** — dropdown and text inputs in the new row now align at the same height (Chromium's intrinsic `<select>` height was one pixel off from `<input>`).
+
 ## [0.4.0] - 2026-07-13
 
 ### Added

@@ -87,6 +87,15 @@ Currently, 'Run R script' function cannot perform is not working on multiple mod
 For feedbacks, https://github.com/tnzo12/nmbench
 
 ## Release Notes
+### 0.4.2
+* **AMD Common** — new `allometric_variable` and `mechanistic_covariates` inputs.
+* **AMD Search space** — COVARIATE slots accept free-text column names; comma-separated lists auto-wrap in brackets.
+* **Pre-flight check** — warns before Generate when `mechanistic_covariates` overlaps with a `COVARIATE?` clause in `search_space` (avoids a known pharmpy 2.1 crash).
+
+### 0.4.1
+* **AMD Common** — new `occasion`, `lloq_limit`, and `lloq_method` inputs (passed to `run_amd()`).
+* **AMD Search space** — fixes an `ABSORPTION`/`ELIMINATION` wildcard bug that made pharmpy 2.1.x crash when all options were selected.
+
 ### 0.4.0
 * **Pharmpy/R view** — Model Builder and AMD Script Generator are now tabs inside a single view with a shared dataset / model file picker at the top.
 * **Generate & Run** — new button that writes the R script and runs it in a terminal in one click.

@@ -26,6 +26,11 @@ interface AmdConfig {
     ec50Init?: number;
     metInit?: number;
     dvTypes?: string;                      // "drug:1,target:2,complex:3" -> R list(...)
+    occasion?: string;                     // occasion / visit column name for IOV
+    lloqMethod?: string;                   // m1 | m3 | m4 | m5 | m6 | m7 (transform_blq)
+    lloqLimit?: number;                    // LLOQ threshold
+    allometricVariable?: string;           // body-weight column for allometric scaling
+    mechanisticCovariates?: string;        // comma-separated list of mechanistic covariates
 }
 
 const MODELTYPE_LABELS: Record<string, string> = {
@@ -50,6 +55,94 @@ function parseDvTypes(raw: string): string | undefined {
         parts.push(`"${k}" = ${Number(v)}`);
     }
     return `list(${parts.join(', ')})`;
+}
+
+/**
+ * Extract the specific covariate column names named in the `search_space`'s
+ * COVARIATE clauses. Skips group symbols (@CONTINUOUS / @CATEGORICAL) since
+ * those aren't specific columns. Returns lowercase-ish set for case-insensitive
+ * comparison against `mechanistic_covariates`.
+ *
+ * Example:
+ *   "COVARIATE?(@IIV,[AGE,WT],EXP); COVARIATE?(@IIV,@CATEGORICAL,CAT)"
+ *   → ["AGE", "WT"]
+ */
+function extractCovariateNames(searchSpace: string): string[] {
+    if (!searchSpace) { return []; }
+    const found = new Set<string>();
+    // Match COVARIATE(...) or COVARIATE?(...) — capture the SECOND slot
+    // (parameter, covariate, effect[, op]). Bracketed lists too: [WT,AGE].
+    const re = /COVARIATE\??\s*\(\s*[^,()]+\s*,\s*(\[[^\]]+\]|[^,()]+)\s*,/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(searchSpace)) !== null) {
+        const slot = m[1].trim();
+        const inner = slot.startsWith('[') && slot.endsWith(']') ? slot.slice(1, -1) : slot;
+        inner.split(',').map(s => s.trim()).filter(Boolean).forEach(name => {
+            if (!name.startsWith('@')) { found.add(name); }
+        });
+    }
+    return [...found];
+}
+
+/**
+ * Preflight validation before Generate / Generate & Run.
+ *
+ * Two related pharmpy 2.1 bugs in `_mechanistic_cov_extraction`, both raising
+ * `ValueError: Cannot be performed with reference value`:
+ *
+ *   (a) name collision — the SAME covariate listed in both
+ *       `mechanistic_covariates` and a `COVARIATE?(…)` clause. Removing it
+ *       from either side fixes it.
+ *
+ *   (b) reference-symbol collision — `mechanistic_covariates` is set AND any
+ *       `COVARIATE?(…)` clause uses a `@`-prefixed reference symbol
+ *       (`@IIV`, `@PK`, `@CONTINUOUS`, `@CATEGORICAL`, etc.). The subtraction
+ *       pharmpy performs internally can't run against un-expanded references,
+ *       so it throws even when there's no overlap on names. Users hitting
+ *       this are usually blindsided because it doesn't look like a conflict.
+ *
+ * `allometric_variable` appearing anywhere is intentional and NOT flagged —
+ * allometric scaling is a fixed transform applied at a different step and
+ * does not go through the mechanistic subtraction path.
+ */
+export function validateAmdConfig(cfg: AmdConfig): string[] {
+    const warnings: string[] = [];
+    const mech = (cfg.mechanisticCovariates || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+    if (mech.length === 0) { return warnings; }
+
+    const searchSpace = cfg.searchSpace || '';
+    const searchCovs = extractCovariateNames(searchSpace);
+
+    // (a) Name overlap
+    if (searchCovs.length > 0) {
+        const mechSet = new Set(mech.map(s => s.toLowerCase()));
+        const overlap = searchCovs.filter(c => mechSet.has(c.toLowerCase()));
+        if (overlap.length > 0) {
+            warnings.push(
+                `Covariate(s) ${overlap.join(', ')} appear in BOTH mechanistic_covariates ` +
+                `AND a search_space COVARIATE clause. This triggers a pharmpy 2.1 crash ` +
+                `("Cannot be performed with reference value"). Remove them from one side — ` +
+                `easiest is usually to drop them from the search_space COVARIATE clause.`
+            );
+        }
+    }
+
+    // (b) Reference-symbol presence in any COVARIATE clause
+    const hasReferenceInCovariate = /COVARIATE\??\s*\(\s*(?:@\w+|[^,()]+)\s*,\s*(?:@\w+|[^,()]+|\[[^\]]+\])/i.test(searchSpace)
+        && /COVARIATE\??\s*\([^)]*@\w+/i.test(searchSpace);
+    if (hasReferenceInCovariate) {
+        warnings.push(
+            `mechanistic_covariates is set AND the search_space still contains a ` +
+            `COVARIATE?(...) clause using a reference symbol (@IIV / @PK / @CONTINUOUS / @CATEGORICAL). ` +
+            `pharmpy 2.1 crashes on this combination even when the covariate names do not overlap. ` +
+            `Fix options: (1) drop mechanistic_covariates, (2) drop the COVARIATE clause from search_space, ` +
+            `or (3) replace @-symbols with explicit column names (e.g. CL, VC, WT, AGE).`
+        );
+    }
+    return warnings;
 }
 
 /**
@@ -134,6 +227,29 @@ function generateRScript(cfg: AmdConfig): string {
     if (cfg.estTool && cfg.estTool !== 'nonmem') {
         args.push(`  esttool = "${cfg.estTool}"`);
     }
+    if (cfg.occasion && cfg.occasion.trim()) {
+        args.push(`  occasion = "${escapeR(cfg.occasion.trim())}"`);
+    }
+    if (cfg.lloqMethod && cfg.lloqMethod !== 'none') {
+        args.push(`  lloq_method = "${cfg.lloqMethod}"`);
+    }
+    if (cfg.lloqLimit !== undefined) {
+        args.push(`  lloq_limit = ${cfg.lloqLimit}`);
+    }
+    if (cfg.allometricVariable && cfg.allometricVariable.trim()) {
+        args.push(`  allometric_variable = "${escapeR(cfg.allometricVariable.trim())}"`);
+    }
+    if (cfg.mechanisticCovariates && cfg.mechanisticCovariates.trim()) {
+        const items = cfg.mechanisticCovariates
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+            .map(s => `"${escapeR(s)}"`)
+            .join(', ');
+        if (items) {
+            args.push(`  mechanistic_covariates = c(${items})`);
+        }
+    }
     if (cfg.seed !== undefined) { args.push(`  seed = ${cfg.seed}`); }
 
     lines.push('result <- run_amd(');
@@ -199,6 +315,7 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
 
         if (msg.command === 'generate') {
             const cfg = msg.config as AmdConfig;
+            if (!(await this.confirmWithWarnings(cfg, 'Generate Code'))) { return; }
             const script = generateRScript(cfg);
             await this.openPreviewDoc(script, cfg.input || '');
             return;
@@ -206,6 +323,7 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
 
         if (msg.command === 'generateAndRun') {
             const cfg = msg.config as AmdConfig;
+            if (!(await this.confirmWithWarnings(cfg, 'Generate & Run'))) { return; }
             const script = generateRScript(cfg);
             await this.writeAndRun(script, cfg.input || '');
             return;
@@ -215,6 +333,24 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
             await vscode.commands.executeCommand('extension.openPharmrSetup');
             return;
         }
+    }
+
+    /**
+     * Run pre-flight validation on the form config. If any warnings surface,
+     * ask the user whether to proceed. Returns true when it's OK to continue,
+     * false when the user chose to cancel and go fix the form.
+     */
+    private async confirmWithWarnings(cfg: AmdConfig, action: string): Promise<boolean> {
+        const warnings = validateAmdConfig(cfg);
+        if (warnings.length === 0) { return true; }
+        const proceed = 'Proceed anyway';
+        const cancel = 'Cancel';
+        const choice = await vscode.window.showWarningMessage(
+            `${action}: ${warnings.length} potential issue${warnings.length === 1 ? '' : 's'} found.\n\n${warnings.join('\n\n')}`,
+            { modal: true },
+            proceed, cancel,
+        );
+        return choice === proceed;
     }
 
     /**
@@ -418,6 +554,28 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
         textarea { min-height: 44px; font-family: var(--vscode-editor-font-family); }
         .row { display: flex; gap: 6px; align-items: end; margin-bottom: 3px; }
         .row > * { flex: 1; }
+        /* When labels can differ in width, .row.aligned forces the label row
+           and the input row to line up cell-by-cell instead of drifting by a
+           pixel or two. Labels are single-line + fixed line-height, and inputs
+           get a shared min-height so <select> (which is intrinsically ~1px
+           taller than <input>) doesn't shove its neighbour up. */
+        .row.aligned > * { display: flex; flex-direction: column; }
+        .row.aligned label {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.4;
+            min-height: 1.4em;
+        }
+        /* Explicit height (not min-height) so <select> — which is usually a
+           pixel or two taller than <input> in Chromium because of the
+           internal arrow-button padding — matches the text inputs exactly. */
+        .row.aligned input,
+        .row.aligned select {
+            height: 26px;
+            line-height: 18px;
+            padding: 3px 5px;
+        }
         button {
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
@@ -754,7 +912,7 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
         <button class="secondary" id="browse-input" style="flex:0 0 auto;">Browse…</button>
     </div>
 
-    <h3 title="administration + esttool passed to run_amd()">Common</h3>
+    <h3 title="administration + esttool + occasion + lloq_* passed to run_amd()">Common</h3>
     <div class="row">
         <div>
             <label for="administration">Administration</label>
@@ -772,6 +930,38 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
                 <option value="dummy">dummy (skip fit)</option>
                 <option value="pharmpy">pharmpy (native)</option>
             </select>
+        </div>
+    </div>
+    <div class="row aligned">
+        <div>
+            <label for="occasion" title="Column name in the dataset that flags occasions/visits. Enables the IOV step in run_amd(). Leave blank to skip.">occasion</label>
+            <input type="text" id="occasion" placeholder="e.g. VISI (blank = no IOV)">
+        </div>
+        <div>
+            <label for="lloqLimit" title="Numeric LLOQ threshold. If blank, pharmpy uses the LLOQ column in the dataset (when available).">lloq_limit</label>
+            <input type="number" id="lloqLimit" step="any" placeholder="e.g. 0.1">
+        </div>
+        <div>
+            <label for="lloqMethod" title="How to handle observations below the lower limit of quantification. See pharmpy.modeling.transform_blq.">lloq_method</label>
+            <select id="lloqMethod">
+                <option value="none" selected>(none)</option>
+                <option value="m1">m1 (drop BLQ rows)</option>
+                <option value="m3">m3 (likelihood-based)</option>
+                <option value="m4">m4 (m3 + IPRED &gt; 0)</option>
+                <option value="m5">m5 (replace with LLOQ/2)</option>
+                <option value="m6">m6 (replace with 0)</option>
+                <option value="m7">m7 (replace with LLOQ)</option>
+            </select>
+        </div>
+    </div>
+    <div class="row aligned">
+        <div>
+            <label for="allometricVariable" title="Body-weight column. Setting this enables allometric scaling (CL∝WT^0.75, V∝WT^1.0) AND registers the column as a covariate so @CONTINUOUS resolves.">allometric_variable</label>
+            <input type="text" id="allometricVariable" placeholder="e.g. WT (blank = skip allometry)">
+        </div>
+        <div>
+            <label for="mechanisticCovariates" title="Comma-separated covariate columns to test in the mechanistic step (structural_covariates). Also registers them so @CONTINUOUS/@CATEGORICAL resolve when no .datainfo is present.">mechanistic_covariates</label>
+            <input type="text" id="mechanisticCovariates" placeholder="e.g. CRCL, AGE">
         </div>
     </div>
 
@@ -1114,13 +1304,35 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
         function wrapOrStar(vals, all) {
             return vals.length === all.length ? '*' : wrapVals(vals);
         }
+        /*
+         * User-typed COVARIATE parameter/covariate slot can be:
+         *   - a single token (group symbol or column name):  "@IIV"  "WT"
+         *   - a comma-separated list to wrap in brackets:    "WT, AGE" -> "[WT,AGE]"
+         *   - already-bracketed:                              "[WT,AGE]" -> passes through
+         * MFL grammar wants the bracketed form for a list, otherwise the bare token.
+         */
+        function wrapMflItems(text) {
+            const raw = String(text || '').trim();
+            if (!raw) { return ''; }
+            if (raw.startsWith('[') && raw.endsWith(']')) { return raw; }
+            if (raw.indexOf(',') === -1) { return raw; }
+            const items = raw.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+            if (items.length === 0) { return ''; }
+            if (items.length === 1) { return items[0]; }
+            return '[' + items.join(',') + ']';
+        }
         function compileMfl(s) {
             const parts = [];
+            // pharmpy MFL supports the * wildcard on PERIPHERALS / TRANSITS /
+            // LAGTIME / COVARIATE, but NOT on ABSORPTION / ELIMINATION -- the
+            // parser accepts them but downstream code iterates the raw
+            // Wildcard object and throws "Wildcard object is not iterable"
+            // (pharmpy 2.1.x). Emit the explicit list for those two.
             if (s.absorption.include && s.absorption.values.length) {
-                parts.push('ABSORPTION(' + wrapOrStar(s.absorption.values, ABSORPTION_OPTS) + ')');
+                parts.push('ABSORPTION(' + wrapVals(s.absorption.values) + ')');
             }
             if (s.elimination.include && s.elimination.values.length) {
-                parts.push('ELIMINATION(' + wrapOrStar(s.elimination.values, ELIMINATION_OPTS) + ')');
+                parts.push('ELIMINATION(' + wrapVals(s.elimination.values) + ')');
             }
             if (s.lagtime.include) {
                 parts.push(s.lagtime.mode === 'BOTH' ? 'LAGTIME([OFF,ON])' : 'LAGTIME(' + s.lagtime.mode + ')');
@@ -1139,11 +1351,13 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
             }
             if (s.covariates.include) {
                 for (const r of s.covariates.rows) {
-                    if (!r.parameter || !r.covariate || !r.effects.length) { continue; }
+                    const paramStr = wrapMflItems(r.parameter);
+                    const covStr = wrapMflItems(r.covariate);
+                    if (!paramStr || !covStr || !r.effects.length) { continue; }
                     const q = r.optional ? '?' : '';
                     const op = r.op && r.op !== '*' ? ',' + r.op : '';
                     const effStr = r.effects.length === EFFECT_OPTIONS.length ? '*' : wrapVals(r.effects);
-                    parts.push('COVARIATE' + q + '(' + r.parameter + ',' + r.covariate + ',' + effStr + op + ')');
+                    parts.push('COVARIATE' + q + '(' + paramStr + ',' + covStr + ',' + effStr + op + ')');
                 }
             }
             if (s.metabolite.include && s.metabolite.values.length) {
@@ -1234,12 +1448,12 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
                     '<div class="mfl-cov-target">' +
                         '<label class="mfl-cov-optional"><input type="checkbox" data-cov-optional="' + i + '"' + (r.optional ? ' checked' : '') + '> ?</label>' +
                         '<div class="mfl-combo">' +
-                            '<input type="text" data-cov-param="' + i + '" value="' + esc(r.parameter) + '" placeholder="Parameter name">' +
+                            '<input type="text" data-cov-param="' + i + '" value="' + esc(r.parameter) + '" placeholder="@IIV or CL,VC">' +
                             '<button type="button" class="mfl-combo-btn" data-combo-toggle tabindex="-1">▾</button>' +
                             '<div class="mfl-combo-menu" hidden>' + renderComboItems(PARAM_OPTIONS) + '</div>' +
                         '</div>' +
                         '<div class="mfl-combo">' +
-                            '<input type="text" data-cov-cov="' + i + '" value="' + esc(r.covariate) + '" placeholder="Covariate label">' +
+                            '<input type="text" data-cov-cov="' + i + '" value="' + esc(r.covariate) + '" placeholder="@CONTINUOUS or WT,AGE">' +
                             '<button type="button" class="mfl-combo-btn" data-combo-toggle tabindex="-1">▾</button>' +
                             '<div class="mfl-combo-menu" hidden>' + renderComboItems(COV_OPTIONS) + '</div>' +
                         '</div>' +
@@ -1507,7 +1721,12 @@ export class AmdViewProvider implements vscode.WebviewViewProvider {
                 emaxInit: num('emaxInit'),
                 ec50Init: num('ec50Init'),
                 metInit: num('metInit'),
-                dvTypes: str('dvTypes')
+                dvTypes: str('dvTypes'),
+                occasion: str('occasion'),
+                lloqMethod: str('lloqMethod'),
+                lloqLimit: num('lloqLimit'),
+                allometricVariable: str('allometricVariable'),
+                mechanisticCovariates: str('mechanisticCovariates')
             };
         }
 
